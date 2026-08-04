@@ -12,18 +12,46 @@ Second free review: repo to Dr. Agent by **6 Aug, 9:00 PM IST**.
 
 ## Status
 
+**P0 complete.** Corrected 4 Aug: this block previously marked Layers 1–3, the
+merchant map and the tests as done while the repo contained nothing but docs —
+no `src/`, no `package.json`, no git. Everything below was built from zero and
+is verified by `npm run test:logic` plus a production build.
+
 - [x] Architecture diagram + PRD submitted (Aug 4 gate)
 - [x] Layer 1 recurring detection — `src/lib/subscriptions.ts`
 - [x] Layer 2 usage correlation + zombie score — `src/lib/correlate.ts`
 - [x] Merchant map, 21 Indian services — `src/lib/merchant-map.ts`
-- [x] Engine regression tests, 15 checks — `scripts/test-logic.ts`
-- [ ] Seed script
-- [ ] Firestore read/write
-- [ ] Dashboard UI
-- [ ] Evidence Gap Handler flow
-- [ ] Gemini intake route
-- [ ] Plan proposal
-- [ ] README + demo video
+- [x] Engine regression tests, **58** checks — `scripts/test-logic.ts`
+- [x] Seed script — `src/lib/seed-data.ts` + `scripts/seed.ts`
+- [x] Store read/write, Firestore + local fallback — `src/lib/store.ts`
+- [x] Dashboard UI with one-click evidence chains — `src/app/page.tsx`
+- [x] Evidence Gap Handler flow — answers persist and outrank inference
+- [x] Gemini intake route — `POST /api/extract`, verified end to end
+- [x] Plan proposal — `POST /api/proposal`, grounded with a fallback
+- [x] README + architecture doc
+- [ ] Demo video
+- [ ] Vercel deploy
+- [ ] Dogfood against real GPay history
+
+### Corrections made to this plan during the build
+
+1. **The ₹800 figure doesn't follow from the table below.** "Orders stop ~120d
+   ago" yields ₹800 only if the last order falls strictly between day 100 and
+   day 130 — at day 130 it's ₹1,000, at day 100 it's ₹600, and both look
+   plausible. The seed pins it at day 115.
+2. **Confidence:** `CLAUDE.md` asks the seed to plant a MEDIUM row; this file's
+   table has none, and P0 has no honest MEDIUM signal (the PRD reserves it for
+   the P1 email ratio). MEDIUM is reachable and unit-tested via a short-history
+   fixture rather than faked into the seed.
+3. **`zombieScore`** follows `CLAUDE.md`'s sum-of-charges rule, not the PRD's
+   `months idle × cost`. They are not the same number: Prime is ₹1,913 under the
+   approximation and reproduces ₹2,093 only if you round up.
+4. **The PRD's "detecting" state is unreachable** — Layer 1 requires 3+
+   occurrences, which strictly dominates the PRD's <2 rule. It is not a member
+   of the `Verdict` union.
+5. **Two false-zombie risks found and fixed**, both documented in the commits:
+   global id-exclusion striking genuine Amazon activity from Prime's evidence,
+   and background noise chaining into a phantom sixth subscription.
 
 ---
 

@@ -1,4 +1,5 @@
 import { GapQuestion } from "@/components/gap-question";
+import { PlanPanel } from "@/components/plan-panel";
 import { UploadScreenshot } from "@/components/upload-screenshot";
 import { VerdictCard } from "@/components/verdict-card";
 import { analyze } from "@/lib/correlate";
@@ -12,13 +13,17 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const store = await getStore();
-  const [transactions, answers] = await Promise.all([
+  const [transactions, answers, proposal] = await Promise.all([
     store.listTransactions(),
     store.listAnswers(),
+    store.latestProposal(),
   ]);
 
   const result = analyze(transactions, undefined, { answers });
   const flagged = result.verdicts.filter((v) => v.verdict === "likely-unused");
+  const merchantNames = Object.fromEntries(
+    result.verdicts.map((v) => [v.merchantKey, v.merchant]),
+  );
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-10 sm:py-14">
@@ -95,6 +100,14 @@ export default async function Home() {
               </div>
             </section>
           )}
+
+          <section className="mb-10">
+            <SectionHeading
+              title="Your plan"
+              subtitle="A checklist, not an action. Nothing is cancelled on your behalf — ever."
+            />
+            <PlanPanel proposal={proposal} merchantNames={merchantNames} />
+          </section>
         </>
       )}
 

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ingestScreenshot, recordAnswer } from "@/lib/ingest";
+import { generateProposal, setProposalDecision } from "@/lib/plan-service";
 
 /**
  * Server actions for the dashboard's own controls.
@@ -48,4 +49,17 @@ export async function uploadAction(formData: FormData): Promise<{ ok: boolean; m
       message: error instanceof Error ? error.message : "Extraction failed.",
     };
   }
+}
+
+/** Demo beat six: the plan, and the annual savings total. */
+export async function generatePlanAction(): Promise<{ fallbackReason: string | null }> {
+  const { fallbackReason } = await generateProposal();
+  revalidatePath("/");
+  return { fallbackReason };
+}
+
+/** The agent proposes; the human disposes. */
+export async function decideAction(id: string, status: "accepted" | "rejected") {
+  await setProposalDecision(id, status);
+  revalidatePath("/");
 }

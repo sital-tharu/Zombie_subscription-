@@ -28,6 +28,13 @@ import {
   tokenize,
   validateMerchantMap,
 } from "../src/lib/merchant-map";
+import {
+  allowedNumbers,
+  buildProposalInput,
+  foreignNumbers,
+  planIsGrounded,
+  templatePlan,
+} from "../src/lib/proposal";
 import { buildSeedTransactions, EXPECTED_SEED_OUTCOME } from "../src/lib/seed-data";
 import { detectSubscriptions, monthlyTotal } from "../src/lib/subscriptions";
 import type { TransactionLike, UsageVerdict } from "../src/lib/types";
@@ -780,6 +787,80 @@ check("SEED: the demo does not rot -- the figures hold at any anchor date", () =
     assert.strictEqual(result.annualSavings, 5988, `annualSavings drifted at ${anchor}`);
     assert.strictEqual(result.subscriptions.length, 5, `subscription count drifted at ${anchor}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// The proposal guard -- an LLM must not be able to invent a rupee figure
+// ---------------------------------------------------------------------------
+
+function seedProposalInput() {
+  return buildProposalInput(analyze(buildSeedTransactions({ asOf: ASOF }), ASOF));
+}
+
+check("PLAN: figures come from the engine, and the action is decided in code", () => {
+  const input = seedProposalInput();
+  assert.strictEqual(input.totalWasted, 2893);
+  assert.strictEqual(input.annualSavings, 5988);
+  assert.deepStrictEqual(
+    input.findings.map((f) => [f.merchantKey, f.suggestedAction]),
+    [
+      ["amazon-prime", "cancel"],
+      ["zomato-gold", "cancel"],
+      ["netflix", "check"],
+      ["kuku-fm-premium", "check"],
+      ["swiggy-one", "keep"],
+    ],
+  );
+});
+
+check("PLAN: an invented figure is detected", () => {
+  const allowed = allowedNumbers(seedProposalInput());
+  // Real figures pass, with or without Indian digit grouping.
+  assert.deepStrictEqual(foreignNumbers("You have wasted ₹2,893 so far.", allowed), []);
+  assert.deepStrictEqual(foreignNumbers("Cancelling saves ₹5988 a year.", allowed), []);
+  // A plausible-looking total that was never supplied does not.
+  assert.deepStrictEqual(foreignNumbers("You could save ₹7,450 a year!", allowed), ["7,450"]);
+});
+
+check("PLAN: small counts are allowed so the guard is not switched off in frustration", () => {
+  const allowed = allowedNumbers(seedProposalInput());
+  assert.deepStrictEqual(foreignNumbers("3 of your 5 subscriptions, over 12 months.", allowed), []);
+});
+
+check("PLAN: one bad number discards the whole plan, not just the sentence", () => {
+  const input = seedProposalInput();
+  const good = templatePlan(input);
+  assert.strictEqual(planIsGrounded(good, input), true);
+
+  assert.strictEqual(
+    planIsGrounded({ ...good, summary: "You are wasting ₹9,999 a year." }, input),
+    false,
+    "an invented figure in the summary must sink the plan",
+  );
+  assert.strictEqual(
+    planIsGrounded(
+      {
+        ...good,
+        items: good.items.map((i, idx) =>
+          idx === 0 ? { ...i, rationale: "This has cost you ₹4,321." } : i,
+        ),
+      },
+      input,
+    ),
+    false,
+    "an invented figure in any rationale must sink the plan",
+  );
+});
+
+check("PLAN: the deterministic fallback reproduces the engine's figures exactly", () => {
+  // This plan is the floor the feature stands on, which is why discarding
+  // Gemini's output costs nothing.
+  const input = seedProposalInput();
+  const plan = templatePlan(input);
+  assert.ok(plan.summary.includes("5,988"), `annual savings missing: ${plan.summary}`);
+  assert.ok(plan.summary.includes("2,893"), `total wasted missing: ${plan.summary}`);
+  assert.strictEqual(plan.items.length, 5);
+  assert.strictEqual(planIsGrounded(plan, input), true);
 });
 
 // ---------------------------------------------------------------------------
