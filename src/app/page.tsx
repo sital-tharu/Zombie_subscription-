@@ -1,6 +1,9 @@
+import { GapQuestion } from "@/components/gap-question";
+import { UploadScreenshot } from "@/components/upload-screenshot";
 import { VerdictCard } from "@/components/verdict-card";
 import { analyze } from "@/lib/correlate";
 import { inr } from "@/lib/format";
+import { hasGeminiKey } from "@/lib/gemini";
 import { getStore, storeMode } from "@/lib/store";
 
 // Read at request time. The verdicts depend on today's date and on answers the
@@ -33,6 +36,11 @@ export default async function Home() {
           Your bank can already list your recurring charges. This judges whether you
           still <em>use</em> them — and shows the transactions behind every verdict.
         </p>
+        {hasGeminiKey() && (
+          <div className="mt-5">
+            <UploadScreenshot />
+          </div>
+        )}
       </header>
 
       {transactions.length === 0 ? (
@@ -82,21 +90,7 @@ export default async function Home() {
               />
               <div className="space-y-3">
                 {result.needsInput.map((verdict) => (
-                  <div
-                    key={verdict.merchantKey}
-                    className="flex flex-wrap items-center gap-4 rounded-xl border border-[var(--color-edge)] bg-[var(--color-panel)] p-4 sm:p-5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium">{verdict.merchant}</div>
-                      <p className="mt-1 text-sm text-[var(--color-muted)]">{verdict.question}</p>
-                    </div>
-                    <div className="text-right text-sm">
-                      <div className="tnum text-[var(--color-unsure)]">
-                        {inr(verdict.potentialWaste)}
-                      </div>
-                      <div className="text-xs text-[var(--color-dim)]">riding on the answer</div>
-                    </div>
-                  </div>
+                  <GapQuestion key={verdict.merchantKey} verdict={verdict} />
                 ))}
               </div>
             </section>

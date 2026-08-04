@@ -9,7 +9,7 @@
  * Prints the resulting verdicts, so the demo figures are checked at the moment
  * the data is written rather than discovered on screen later.
  */
-import "dotenv/config";
+import "./load-env";
 import { analyze } from "../src/lib/correlate";
 import { buildSeedTransactions, EXPECTED_SEED_OUTCOME } from "../src/lib/seed-data";
 import { getStore } from "../src/lib/store";

@@ -9,7 +9,9 @@
     "start": "node node_modules/next/dist/bin/next start",
     "lint": "node node_modules/eslint/bin/eslint.js",
     "seed": "node node_modules/tsx/dist/cli.mjs scripts/seed.ts",
-    "test:logic": "node node_modules/tsx/dist/cli.mjs scripts/test-logic.ts"
+    "test:logic": "node node_modules/tsx/dist/cli.mjs scripts/test-logic.ts",
+    "probe:gemini": "node node_modules/tsx/dist/cli.mjs scripts/probe-gemini.ts",
+    "probe:extract": "node node_modules/tsx/dist/cli.mjs scripts/probe-extract.ts"
   },
   "dependencies": {
     "@google/genai": "^2.12.0",
