@@ -66,6 +66,9 @@ deterministically from the same figures.
 | `npm run lint` | ESLint, including the engine purity boundary |
 | `npm run test:logic` | 58 engine regression checks — pure functions, no creds |
 | `npm run seed` | Seed date-relative demo history and print the verdicts |
+| `npm run wipe:seed` | Remove demo data, leaving real transactions |
+| `npm run wipe:real` | Remove real transactions, leaving demo data |
+| `npm run ingest -- --dry-run` | Read every image in `samples/` without writing |
 | `npm run probe:gemini` | Check the key authenticates, and measure latency |
 | `npm run probe:extract` | Run a synthetic screenshot through the real intake path |
 
@@ -123,13 +126,38 @@ set.
 | `POST /api/verdicts/{merchantKey}/answer` | `{ "used": boolean }` |
 | `POST /api/proposal` | Generate a plan · `PATCH` with `{ id, status }` to accept or reject |
 
-## Deploying to Vercel
+## Live deployment
+
+**https://zombie-fgnbl96oa-sital-tharus-projects.vercel.app**
+
+Publicly readable, backed by Firestore, seeded demo data only. Redeploy with:
+
+```bash
+npx vercel deploy --prod
+```
+
+### Privacy: the deployed database holds synthetic data only
+
+The dashboard is public and has **no login of its own** — only the write routes
+check `x-owner-key`. So real transactions must never reach the deployed
+database, and the two-track split is enforced by tooling rather than by memory:
+
+```bash
+ZOMBIE_STORE=local npm run ingest   # dogfood locally; real data stays on disk
+npm run wipe:real                   # purge real rows before exposing anything
+```
+
+`ZOMBIE_STORE=local` forces the JSON store even when Firebase credentials are
+present. The alternative — moving the service account file around to change
+behaviour — is exactly the kind of manual step that gets forgotten with real
+financial data on the wrong side of it.
+
+## Deploying from scratch
 
 The repo builds as-is; the only work is environment variables.
 
-1. [vercel.com/new](https://vercel.com/new) → import
-   `sital-tharu/Zombie_subscription-`. Framework detection and build settings
-   need no changes.
+1. [vercel.com/new](https://vercel.com/new) → import the repo, or run
+   `npx vercel link`. Framework detection needs no changes.
 2. Set three variables under **Settings → Environment Variables**, each applied
    to Production, Preview *and* Development:
 

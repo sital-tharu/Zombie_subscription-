@@ -1,0 +1,18 @@
+# Explicit upload exclusions for `vercel deploy`.
+#
+# The CLI uploads the working directory, not a git archive, so gitignored files
+# are NOT automatically safe. These three are the ones that must never leave the
+# machine, and stating them here rather than relying on .gitignore inference is
+# the difference between a policy and a hope.
+/secrets
+/samples
+/data
+.env
+.env.local
+.env*.local
+
+# Not needed for a build
+/node_modules
+/.next
+/.git
+tsconfig.tsbuildinfo

@@ -38,6 +38,8 @@ export interface Store {
   addTransactions(txns: readonly StoredTransaction[]): Promise<number>;
   /** Wipe previously seeded rows, then insert. Re-seeding must not duplicate. */
   replaceSeeded(txns: readonly StoredTransaction[]): Promise<number>;
+  /** Remove specific transactions by id. Used to purge real data from a public deployment. */
+  deleteTransactions(ids: readonly string[]): Promise<number>;
   listAnswers(): Promise<UserAnswer[]>;
   saveAnswer(answer: UserAnswer): Promise<void>;
   saveProposal(proposal: StoredProposal): Promise<void>;
@@ -64,6 +66,20 @@ export function hasFirebaseCredentials(): boolean {
 }
 
 /**
+ * `ZOMBIE_STORE=local` forces the JSON store even when Firebase credentials are
+ * present. This is what makes the PRD's two-track data strategy actually
+ * workable: the deployed Firestore holds only the scripted demo, while real
+ * GPay history is dogfooded locally and never leaves the machine.
+ *
+ * The alternative was moving the service account file around to change
+ * behaviour, which is the kind of manual step that eventually gets forgotten
+ * with real financial data on the wrong side of it.
+ */
+function forcedLocal(): boolean {
+  return process.env.ZOMBIE_STORE === "local";
+}
+
+/**
  * The service account path comes from an environment variable, so the bundler
  * cannot trace it statically. Left unannotated, Turbopack assumes the whole
  * project is reachable and pulls every file into the serverless bundle.
@@ -81,7 +97,7 @@ let cached: Store | null = null;
  */
 export async function getStore(): Promise<Store> {
   if (!cached) {
-    if (!hasFirebaseCredentials() && process.env.VERCEL) {
+    if (storeMode() === "local" && process.env.VERCEL) {
       // The local adapter writes to ./data, and a serverless filesystem is
       // read-only. Falling back there on Vercel produces a dashboard that
       // renders an empty state and silently discards every write -- which
@@ -92,17 +108,21 @@ export async function getStore(): Promise<Store> {
       // NODE_ENV=production locally, and a clean clone must still build without
       // any Firebase setup.
       throw new Error(
-        "No Firebase credentials in a Vercel deployment. Set FIREBASE_SERVICE_ACCOUNT_JSON " +
-          "to the full service account JSON — the file-path variable cannot work here, " +
-          "because secrets/ is gitignored and never deployed.",
+        forcedLocal()
+          ? "ZOMBIE_STORE=local is set in a Vercel deployment. The local store writes to " +
+            "./data and a serverless filesystem is read-only. Unset it."
+          : "No Firebase credentials in a Vercel deployment. Set FIREBASE_SERVICE_ACCOUNT_JSON " +
+            "to the full service account JSON — the file-path variable cannot work here, " +
+            "because secrets/ is gitignored and never deployed.",
       );
     }
-    cached = hasFirebaseCredentials() ? await firestoreStore() : localStore();
+    cached = storeMode() === "firestore" ? await firestoreStore() : localStore();
   }
   return cached;
 }
 
 export function storeMode(): StoreMode {
+  if (forcedLocal()) return "local";
   return hasFirebaseCredentials() ? "firestore" : "local";
 }
 
@@ -165,6 +185,18 @@ async function firestoreStore(): Promise<Store> {
         await batch.commit();
       }
       return addAll(txns);
+    },
+
+    async deleteTransactions(ids) {
+      if (ids.length === 0) return 0;
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = db.batch();
+        for (const id of ids.slice(i, i + 400)) {
+          batch.delete(db.collection(TRANSACTIONS).doc(id));
+        }
+        await batch.commit();
+      }
+      return ids.length;
     },
 
     async listAnswers() {
@@ -257,6 +289,15 @@ function localStore(): Store {
       data.transactions = data.transactions.filter((t) => !t.seeded);
       write(data);
       return this.addTransactions(txns);
+    },
+
+    async deleteTransactions(ids) {
+      const remove = new Set(ids);
+      const data = read();
+      const before = data.transactions.length;
+      data.transactions = data.transactions.filter((t) => !remove.has(t.id));
+      write(data);
+      return before - data.transactions.length;
     },
 
     async listAnswers() {
