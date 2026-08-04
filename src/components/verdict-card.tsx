@@ -2,6 +2,7 @@ import {
   confidenceLabel,
   daysAgoLabel,
   inr,
+  monthsLabel,
   shortDate,
   verdictLabel,
   verdictTheme,
@@ -143,6 +144,10 @@ export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
             <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="text-[var(--color-muted)]">
                 {evidence.chargeCount} charges since {shortDate(evidence.firstDate)}
+                <span className="text-[var(--color-dim)]">
+                  {" "}
+                  · {monthsLabel(evidence.spanDays)}
+                </span>
               </span>
               <span className="tnum text-[var(--color-muted)]">{inr(evidence.totalPaid)} total</span>
             </div>

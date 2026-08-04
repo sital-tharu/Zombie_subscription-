@@ -52,6 +52,26 @@ const VERDICTS = "verdicts";
 const PROPOSALS = "proposals";
 
 /**
+ * How many transactions a single read returns.
+ *
+ * This is not a cosmetic limit. Reads are ordered newest-first, so truncation
+ * silently removes the OLDEST transactions -- the far end of every charge
+ * chain. A chain cut short reports fewer charges, a smaller totalPaid and a
+ * smaller zombieScore, all of them internally consistent and all of them wrong.
+ * Exactly the kind of quietly incorrect number this product exists to avoid.
+ *
+ * Hence the generous ceiling, and hence `readWasTruncated` below: when the
+ * result fills the limit, the dashboard says so rather than presenting a
+ * partial history as a complete one.
+ */
+export const TRANSACTION_READ_LIMIT = 2000;
+
+/** True when a read probably hit the ceiling and older rows are missing. */
+export function readWasTruncated(returned: number, limit = TRANSACTION_READ_LIMIT): boolean {
+  return returned >= limit;
+}
+
+/**
  * Firestore is used only when a service account is actually reachable.
  *
  * The path check is the important half: .env.example ships with
@@ -163,7 +183,7 @@ async function firestoreStore(): Promise<Store> {
   return {
     mode: "firestore",
 
-    async listTransactions(limit = 500) {
+    async listTransactions(limit = TRANSACTION_READ_LIMIT) {
       const snap = await db
         .collection(TRANSACTIONS)
         .orderBy("date", "desc")
@@ -269,7 +289,7 @@ function localStore(): Store {
   return {
     mode: "local",
 
-    async listTransactions(limit = 500) {
+    async listTransactions(limit = TRANSACTION_READ_LIMIT) {
       return read()
         .transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         .slice(0, limit);

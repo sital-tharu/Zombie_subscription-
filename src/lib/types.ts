@@ -128,6 +128,8 @@ export interface EvidenceChain {
   totalPaid: number;
   firstDate: string;
   lastDate: string;
+  /** firstDate -> lastDate, mirroring Subscription.spanDays. */
+  spanDays: number;
   userAnswer?: { used: boolean; answeredAt: string };
 }
 

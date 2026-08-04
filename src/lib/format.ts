@@ -20,6 +20,17 @@ export function shortDate(iso: string): string {
   return `${Number(d)} ${months[Number(m) - 1]} ${y.slice(2)}`;
 }
 
+/**
+ * Days as an approximate month count, for spans measured in months rather than
+ * days. Display only: the day count is computed in the engine, and this never
+ * feeds a currency figure.
+ */
+export function monthsLabel(days: number): string {
+  if (days < 45) return `${days} days`;
+  const months = Math.round(days / 30.44);
+  return `${months} month${months === 1 ? "" : "s"}`;
+}
+
 export function daysAgoLabel(days: number | null): string {
   if (days === null) return "never";
   if (days <= 0) return "today";

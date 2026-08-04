@@ -256,6 +256,7 @@ function judge(
     totalPaid: sub.totalPaid,
     firstDate: sub.firstDate,
     lastDate: sub.lastDate,
+    spanDays: sub.spanDays,
   };
 
   if (matchesInWindow.length > 0) {
@@ -342,6 +343,7 @@ function gapVerdict(
       totalPaid: sub.totalPaid,
       firstDate: sub.firstDate,
       lastDate: sub.lastDate,
+      spanDays: sub.spanDays,
     },
   };
 }
