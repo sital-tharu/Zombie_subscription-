@@ -8,5 +8,7 @@
  */
 import { config } from "dotenv";
 
-config({ path: ".env.local" });
-config({ path: ".env" });
+// quiet: dotenv otherwise prints a rotating promo tip on every run, which is
+// noise in output that gets read on stage.
+config({ path: ".env.local", quiet: true });
+config({ path: ".env", quiet: true });
