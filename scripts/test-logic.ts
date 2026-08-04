@@ -673,6 +673,51 @@ check("DET: the answer is pinned to asOf, not to the system clock", () => {
   assert.strictEqual(result.annualSavings, 5988);
 });
 
+check("SPAN: the result reports how much history it actually analysed", () => {
+  // These figures go on screen, so they are computed and pinned in the engine
+  // rather than derived in a component. The dashboard previously stated neither,
+  // which is why "how many months are we tracking?" had no answer on the page.
+  const result = analyze(demoFixture(), ASOF);
+  assert.strictEqual(result.historyStart, ago(220), "earliest charge in the fixture");
+  assert.strictEqual(result.historySpanDays, 220);
+  assert.strictEqual(result.transactionsAnalysed, demoFixture().length);
+  // The two windows are different spans, and that is the whole point.
+  assert.strictEqual(result.lookbackDays, 90);
+  assert.ok(result.historySpanDays > result.lookbackDays);
+});
+
+check("SPAN: an empty history reports null rather than a misleading zero date", () => {
+  const result = analyze([], ASOF);
+  assert.strictEqual(result.historyStart, null);
+  assert.strictEqual(result.historySpanDays, 0);
+  assert.strictEqual(result.transactionsAnalysed, 0);
+  assert.strictEqual(result.lookbackDays, 90, "no data does not shrink the window");
+});
+
+check("SPAN: the span excludes rows beyond the asOf horizon", () => {
+  const result = analyze([...demoFixture(), t("FUTURE", -60, 500)], ASOF);
+  assert.strictEqual(result.historySpanDays, 220, "a future-dated row must not widen the span");
+  assert.strictEqual(result.transactionsAnalysed, demoFixture().length);
+});
+
+check("SPAN: each subscription reports its own chain span", () => {
+  const result = analyze(demoFixture(), ASOF);
+  const prime = result.subscriptions.find((s) => s.merchantKey === "amazon-prime");
+  assert.ok(prime);
+  assert.strictEqual(prime.spanDays, 180, "7 charges at 30-day cadence");
+  assert.strictEqual(prime.spanDays, 180);
+  const zomato = result.subscriptions.find((s) => s.merchantKey === "zomato-gold");
+  assert.ok(zomato);
+  assert.strictEqual(zomato.spanDays, 210, "8 charges at 30-day cadence");
+});
+
+check("SPAN: a short history shrinks the window but not the reported span", () => {
+  const result = analyze([0, 31, 62].map((d) => t("AMAZON PRIME", d, 299)), ASOF);
+  assert.strictEqual(result.historySpanDays, 62);
+  assert.strictEqual(result.lookbackDays, 62, "the window cannot exceed the history");
+  assert.strictEqual(verdictFor(result, "amazon-prime").confidence, "medium");
+});
+
 check("DET: rewinding asOf gives the historically correct answer", () => {
   // The time machine. As of 150 days ago, Zomato was still being used.
   const rewound = analyze(demoFixture(), ago(150));
@@ -786,6 +831,10 @@ check("SEED: the demo does not rot -- the figures hold at any anchor date", () =
     assert.strictEqual(result.totalWasted, 2893, `totalWasted drifted at ${anchor}`);
     assert.strictEqual(result.annualSavings, 5988, `annualSavings drifted at ${anchor}`);
     assert.strictEqual(result.subscriptions.length, 5, `subscription count drifted at ${anchor}`);
+    // The reported span must be as stable as the money, since it is now shown
+    // on screen next to it.
+    assert.strictEqual(result.historySpanDays, 220, `history span drifted at ${anchor}`);
+    assert.strictEqual(result.lookbackDays, 90, `lookback drifted at ${anchor}`);
   }
 });
 

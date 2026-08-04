@@ -155,6 +155,7 @@ export function detectSubscriptions(
       charges,
       cadenceDays: Math.round(median(gaps)),
       daysSinceLastCharge: daysBetween(charges[charges.length - 1].date, asOfDate),
+      spanDays: daysBetween(charges[0].date, charges[charges.length - 1].date),
     });
   }
 

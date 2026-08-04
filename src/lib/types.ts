@@ -70,6 +70,8 @@ export interface Subscription {
   cadenceDays: number;
   /** Relative to asOf. */
   daysSinceLastCharge: number;
+  /** firstDate -> lastDate. How long this subscription has been running. */
+  spanDays: number;
 }
 
 export type Verdict = "used" | "likely-unused" | "unknown";
@@ -160,7 +162,18 @@ export interface UserAnswer {
 
 export interface AnalyzeResult {
   asOf: string;
+  /**
+   * How far back usage is checked. NOT how far back charges are read -- charge
+   * history is unbounded. Keeping both on the result is what lets the UI state
+   * the difference instead of leaving it to be explained out loud.
+   */
   lookbackDays: number;
+  /** Earliest transaction analysed. Null when there is no history at all. */
+  historyStart: string | null;
+  /** historyStart -> asOf. The full period the charge chains were drawn from. */
+  historySpanDays: number;
+  /** Rows that survived validation and the asOf horizon. */
+  transactionsAnalysed: number;
   subscriptions: Subscription[];
   /** Ranked by zombieScore desc, then a total order so ties are never arbitrary. */
   verdicts: UsageVerdict[];

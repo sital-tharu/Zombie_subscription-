@@ -102,8 +102,16 @@ export function analyze(
   const txns = withinHorizon(transactions, asOfDate);
   const subscriptions = detectSubscriptions(txns, asOfDate);
 
+  // One scan, two consumers: the reported history span and the lookback ceiling
+  // below. Computing the earliest date twice would let the figure shown on
+  // screen drift from the one the confidence grade depends on.
+  const historyStart = earliestDate(txns);
+  const historySpanDays = historyStart ? daysBetween(historyStart, asOfDate) : 0;
+
   const requested = opts?.lookbackDays ?? LOOKBACK_DAYS;
-  const lookbackDays = effectiveLookback(txns, asOfDate, requested);
+  const lookbackDays = historyStart
+    ? Math.max(0, Math.min(requested, historySpanDays))
+    : requested;
   const windowStart = addDaysIso(asOfDate, -lookbackDays);
 
   const answersByKey = new Map(
@@ -137,6 +145,9 @@ export function analyze(
   return {
     asOf: asOfDate,
     lookbackDays,
+    historyStart,
+    historySpanDays,
+    transactionsAnalysed: txns.length,
     subscriptions,
     verdicts: ranked,
     totalWasted: round2(ranked.reduce((sum, v) => sum + v.zombieScore, 0)),
@@ -159,22 +170,17 @@ export function analyze(
 }
 
 /**
- * The window can never be longer than the history it is asked about.
+ * Earliest transaction date, or null for an empty history.
  *
- * With only 62 days of data, "no activity in 90 days" is a claim the data
- * cannot support, so the window shrinks to 62 and the confidence drops to
- * medium. This is the only honest source of MEDIUM in P0 -- the PRD reserves
- * MEDIUM for the email-engagement ratio, which is P1.
+ * This single figure drives two things that must never disagree: the history
+ * span the dashboard reports, and the ceiling on the usage window. With only
+ * 62 days of data, "no activity in 90 days" is a claim the data cannot support,
+ * so the window shrinks to 62 and confidence drops to medium -- the only honest
+ * source of MEDIUM in P0, since the PRD reserves it for the P1 email ratio.
  */
-function effectiveLookback(
-  txns: readonly TransactionLike[],
-  asOf: string,
-  requested: number,
-): number {
-  if (txns.length === 0) return requested;
-  const earliest = txns.reduce((min, t) => (t.date < min ? t.date : min), txns[0].date);
-  const span = daysBetween(earliest, asOf);
-  return Math.max(0, Math.min(requested, span));
+function earliestDate(txns: readonly TransactionLike[]): string | null {
+  if (txns.length === 0) return null;
+  return txns.reduce((min, t) => (t.date < min ? t.date : min), txns[0].date);
 }
 
 interface Window {
