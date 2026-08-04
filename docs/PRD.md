@@ -108,7 +108,7 @@ The system follows a left-to-right pipeline:
 
 ## 12. Security Requirements
 *   **Authentication:** Single-owner passcode protection.
-*   **Authorization:** Gmail OAuth 2.0 with restricted scopes (read-only for specific labels/senders).
+*   **Authorization (Gmail, Layer 2b):** Gmail OAuth 2.0 using the `gmail.metadata` scope — message headers only (From, Subject, Date), with message *bodies* never accessible to the application. Label and sender filtering is applied after retrieval, in our own code. Note that Gmail provides no label-scoped or sender-scoped OAuth scope: any narrower-sounding claim would be unachievable, and `gmail.readonly` would grant the entire mailbox including bodies. `gmail.metadata` is the narrowest scope that supports the email-engagement signal, since that signal needs only the ratio of billing to product mail.
 *   **Data Protection:** Server-side only database access via Firebase Admin SDK; no client-side DB keys.
 
 ## 13. Success Metrics
