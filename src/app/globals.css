@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0a0c10;
+  --color-panel: #12151c;
+  --color-panel-2: #171b24;
+  --color-edge: #242a36;
+  --color-muted: #8b94a7;
+  --color-dim: #5f6878;
+
+  /* Verdict colours. Red for money being wasted, green for money well spent,
+     amber for "we genuinely cannot tell" -- amber never reads as a mild red. */
+  --color-zombie: #ff5f56;
+  --color-zombie-dim: #3a1a1c;
+  --color-alive: #3fb950;
+  --color-alive-dim: #12291a;
+  --color-unsure: #e3a008;
+  --color-unsure-dim: #33270a;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(900px 500px at 15% -8%, #1b2030 0%, transparent 60%),
+    var(--color-ink);
+  color: #e9edf5;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular figures everywhere money appears. Currency that shifts width as
+   digits change looks unreliable, and this app's entire argument is that its
+   numbers can be trusted. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details[open] .chev {
+  transform: rotate(90deg);
+}
+.chev {
+  transition: transform 150ms ease;
+}

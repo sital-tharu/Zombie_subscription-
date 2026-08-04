@@ -60,7 +60,16 @@ const PROPOSALS = "proposals";
 export function hasFirebaseCredentials(): boolean {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return true;
   const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  return Boolean(path && existsSync(resolve(process.cwd(), path)));
+  return Boolean(path && existsSync(serviceAccountPath(path)));
+}
+
+/**
+ * The service account path comes from an environment variable, so the bundler
+ * cannot trace it statically. Left unannotated, Turbopack assumes the whole
+ * project is reachable and pulls every file into the serverless bundle.
+ */
+function serviceAccountPath(path: string): string {
+  return resolve(/* turbopackIgnore: true */ process.cwd(), path);
 }
 
 let cached: Store | null = null;
@@ -92,7 +101,7 @@ async function firestoreStore(): Promise<Store> {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
     ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
     : JSON.parse(
-        readFileSync(resolve(process.cwd(), process.env.FIREBASE_SERVICE_ACCOUNT_PATH!), "utf8"),
+        readFileSync(serviceAccountPath(process.env.FIREBASE_SERVICE_ACCOUNT_PATH!), "utf8"),
       );
 
   // getApps() guard: Next's dev server re-evaluates modules on hot reload.
