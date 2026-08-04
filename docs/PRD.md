@@ -33,7 +33,7 @@ Users frequently continue paying for unused subscriptions without realizing the 
 *   **Evidence Gap Handling (Layer 2c):** When signals are low/none, the system must query the user directly rather than guessing.
 
 ### 5.4 Verdict & Proposal (Layer 3)
-*   **Zombie Scoring:** Rank subscriptions by (Months since last usage × Monthly cost).
+*   **Zombie Scoring:** Rank subscriptions by the sum of subscription charges billed *after* the last observed usage evidence — or every charge in the chain, where usage was never observed. The unit is rupees, and each contributing charge is identified by transaction id, so the savings total reconciles against transaction history by construction rather than by trust. This refines the original `months idle × monthly cost` formulation: the same quantity, computed exactly instead of approximated. (The approximation values a 192-day-idle ₹299 subscription at ₹1,913; the exact rule gives ₹2,093, being seven real charges of ₹299.)
 *   **Plan Generation:** Generate a natural language plan (Cancel/Downgrade/Keep) with quantified annual savings.
 *   **Human Decision Loop:** Provide explicit Accept/Reject actions for every proposal.
 
@@ -87,12 +87,15 @@ The system follows a left-to-right pipeline:
 
 ### Thresholds & Edge Cases
 *   **Lookback window:** 90 days for transaction correlation. A subscription with zero correlated activity across the window is flagged likely-unused.
-*   **Never-used subscriptions:** Where no usage evidence exists at any point in history, months-idle is measured from the first observed charge rather than from a last-usage date. These rank highest by design.
-*   **Insufficient history:** Subscriptions with fewer than two observed charges are not scored; they surface as "detecting" rather than as a verdict.
-*   **Confidence grades:** 
-    *   **HIGH:** Transaction correlation within the lookback window.
-    *   **MEDIUM:** Email engagement ratio only.
-    *   **LOW/NONE:** No signal, routes to the Evidence Gap Handler.
+*   **Never-used subscriptions:** Where no usage evidence exists at any point in history, every charge in the chain counts as waste, measured from the first observed charge. These rank highest by design.
+*   **Window vs. score:** The 90-day window and the score are answered from different ranges, deliberately. The window asks *"is there any usage in the last 90 days?"* and decides the verdict; last-usage is sought across **all** history and bounds the score. A subscription last used 115 days ago is therefore flagged as likely-unused, but only the charges billed after that date are counted — not the whole chain.
+*   **Insufficient history:** Detection requires three or more charges, so a merchant below that threshold produces no subscription and therefore no verdict to withhold. No separate "detecting" state exists.
+*   **Confidence grades:** Rendered as words, never percentages — a fake-precision figure would undercut the auditability the product argues for.
+    *   **HIGH:** Transaction correlation within the lookback window, or a full 90-day silence.
+    *   **MEDIUM:** Available history is shorter than the lookback window, so the silence claim rests on less than a full window. (Reserved additionally for the P1 email-engagement ratio.)
+    *   **LOW:** Recognised service that leaves no observable footprint. Routes to the Evidence Gap Handler.
+    *   **NONE:** Merchant not recognised. Also routes to the Gap Handler, but is a weaker admission than LOW.
+    *   **USER-CONFIRMED:** The user answered directly. Outranks every inference, in both directions.
 
 ### Two-Track Data Strategy
 *   **Validation track:** Real GPay and Gmail history, used for dogfooding and for verifying that flagged subscriptions match ones the author recognizes as genuinely unused.
