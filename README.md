@@ -128,13 +128,20 @@ set.
 
 ## Live deployment
 
-**https://zombie-fgnbl96oa-sital-tharus-projects.vercel.app**
+**https://zombie-sital-tharus-projects.vercel.app**
 
 Publicly readable, backed by Firestore, seeded demo data only. Redeploy with:
 
 ```bash
 npx vercel deploy --prod
 ```
+
+Use the URL above, not the one `vercel deploy` prints. That one is unique per
+deployment (`zombie-f838vpwf8-…`) and goes stale the moment you deploy again;
+the alias above always points at current production.
+
+⚠️ **`zombie.vercel.app` is a different project** belonging to someone else. It
+resolves and returns 200, so it is an easy and very costly mistake to link.
 
 ### Privacy: the deployed database holds synthetic data only
 
