@@ -28,6 +28,7 @@ import {
   tokenize,
   validateMerchantMap,
 } from "../src/lib/merchant-map";
+import { buildSeedTransactions, EXPECTED_SEED_OUTCOME } from "../src/lib/seed-data";
 import { detectSubscriptions, monthlyTotal } from "../src/lib/subscriptions";
 import type { TransactionLike, UsageVerdict } from "../src/lib/types";
 
@@ -672,6 +673,113 @@ check("DET: rewinding asOf gives the historically correct answer", () => {
   assert.ok(zomato);
   assert.strictEqual(zomato.verdict, "used");
   assert.strictEqual(zomato.zombieScore, 0);
+});
+
+// ---------------------------------------------------------------------------
+// The seeded demo history -- PLAN.md's table, reproduced from generated data
+//
+// These are the numbers that appear on stage. Everything above tests the engine
+// against hand-written fixtures; these test the actual dataset the demo runs on.
+// ---------------------------------------------------------------------------
+
+check("SEED: the generated history is realistic in shape", () => {
+  const seeded = buildSeedTransactions({ asOf: ASOF });
+  const background = seeded.filter((r) => r.category !== "Subscriptions");
+  assert.ok(
+    background.length >= 40 && background.length <= 70,
+    `expected 40-70 background rows, got ${background.length}`,
+  );
+  assert.ok(
+    new Set(seeded.map((r) => r.id)).size === seeded.length,
+    "seed ids must be unique",
+  );
+  assert.ok(
+    seeded.every((r) => r.date <= ASOF),
+    "no seeded row may be dated in the future",
+  );
+});
+
+check("SEED: not one background merchant matches Amazon", () => {
+  // A single stray Amazon row flips Prime to used, deletes 2093 rupees, and
+  // takes the third demo beat with it -- silently. The donor seed has four.
+  const stray = buildSeedTransactions({ asOf: ASOF }).filter(
+    (r) =>
+      r.merchant.toUpperCase() !== "AMAZON PRIME" &&
+      matchesPattern(tokenize(r.merchant), "amazon"),
+  );
+  assert.deepStrictEqual(stray.map((r) => r.merchant), []);
+});
+
+check("SEED: exactly five subscriptions -- no phantom sixth from the noise", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  assert.strictEqual(
+    result.subscriptions.length,
+    EXPECTED_SEED_OUTCOME.subscriptionCount,
+    `detected: ${result.subscriptions.map((s) => s.merchantKey).join(", ")}`,
+  );
+});
+
+check("SEED: every planted verdict matches PLAN.md's table", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  assert.deepStrictEqual(
+    result.verdicts.map((v) => ({
+      merchantKey: v.merchantKey,
+      verdict: v.verdict,
+      confidence: v.confidence,
+      zombieScore: v.zombieScore,
+    })),
+    EXPECTED_SEED_OUTCOME.verdicts.map((v) => ({ ...v })),
+  );
+});
+
+check("SEED: the headline figures land", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  assert.strictEqual(result.totalWasted, EXPECTED_SEED_OUTCOME.totalWasted);
+  assert.strictEqual(result.annualSavings, EXPECTED_SEED_OUTCOME.annualSavings);
+});
+
+check("SEED: Amazon Prime traces to 7 charges starting in January", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  const prime = verdictFor(result, "amazon-prime");
+  assert.strictEqual(prime.wastedCharges.length, 7);
+  assert.strictEqual(prime.evidence.firstDate, "2026-01-24");
+  assert.strictEqual(
+    prime.zombieScore,
+    round2(prime.wastedCharges.reduce((s, c) => s + c.amount, 0)),
+  );
+});
+
+check("SEED: Zomato Gold wastes exactly 4 of its 8 charges", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  const zomato = verdictFor(result, "zomato-gold");
+  assert.strictEqual(zomato.evidence.chargeCount, 8);
+  assert.strictEqual(zomato.wastedCharges.length, 4);
+  assert.strictEqual(zomato.evidence.daysSinceLastUsage, 115);
+  assert.strictEqual(zomato.zombieScore, 800);
+});
+
+check("SEED: answering no to Netflix moves the headline as rehearsed", () => {
+  // Demo beat 5. The figures jump because the user supplied the evidence the
+  // agent admitted it lacked -- worth rehearsing so it is not a surprise.
+  const seeded = buildSeedTransactions({ asOf: ASOF });
+  const answered = analyze(seeded, ASOF, {
+    answers: [{ merchantKey: "netflix", used: false, answeredAt: `${ASOF}T10:00:00Z` }],
+  });
+  assert.strictEqual(answered.totalWasted, 6787, "2893 + 3894");
+  assert.strictEqual(answered.annualSavings, 13776, "12 x (299 + 200 + 649)");
+  assert.deepStrictEqual(answered.needsInput.map((v) => v.merchantKey), ["kuku-fm-premium"]);
+});
+
+check("SEED: the demo does not rot -- the figures hold at any anchor date", () => {
+  // Dates are generated relative to asOf, so seeding in November must give the
+  // same answer as seeding today. This is the check that keeps the fixtures
+  // from going stale between now and the submission.
+  for (const anchor of ["2026-08-04", "2026-08-08", "2026-11-30", "2027-03-01"]) {
+    const result = analyze(buildSeedTransactions({ asOf: anchor }), anchor);
+    assert.strictEqual(result.totalWasted, 2893, `totalWasted drifted at ${anchor}`);
+    assert.strictEqual(result.annualSavings, 5988, `annualSavings drifted at ${anchor}`);
+    assert.strictEqual(result.subscriptions.length, 5, `subscription count drifted at ${anchor}`);
+  }
 });
 
 // ---------------------------------------------------------------------------
