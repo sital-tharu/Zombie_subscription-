@@ -63,7 +63,7 @@ export function isUsageEvidence(
   entry: MerchantEntry,
   excludedIds: ReadonlySet<string>,
 ): boolean {
-  // 1. Belt: this exact transaction is a known subscription charge.
+  // 1. Belt: this exact transaction is one of THIS subscription's own charges.
   if (excludedIds.has(txn.id)) return false;
 
   // 2. Nothing is evidence for a service that leaves no footprint. Watching
@@ -102,10 +102,6 @@ export function analyze(
   const txns = withinHorizon(transactions, asOfDate);
   const subscriptions = detectSubscriptions(txns, asOfDate);
 
-  // Every chain in the map, not just the one under examination -- a Swiggy One
-  // charge must not count as evidence for anything.
-  const excludedIds = new Set(subscriptions.flatMap((s) => s.chargeIds));
-
   const requested = opts?.lookbackDays ?? LOOKBACK_DAYS;
   const lookbackDays = effectiveLookback(txns, asOfDate, requested);
   const windowStart = addDaysIso(asOfDate, -lookbackDays);
@@ -115,7 +111,19 @@ export function analyze(
   );
 
   const verdicts = subscriptions.map((sub) => {
-    const base = judge(sub, txns, excludedIds, {
+    // Scoped to this subscription's OWN charges, deliberately not to every
+    // detected chain. Global id-exclusion looks safer and is not: three
+    // similar monthly Amazon purchases chain into their own "amazon"
+    // subscription, and excluding them by id would strike genuine Amazon
+    // activity from Amazon Prime's evidence and flag an actively used Prime as
+    // a zombie. A false zombie is the worst failure this product has.
+    //
+    // Nothing is lost. Every MAPPED subscription's charges are already caught
+    // by step 3 of isUsageEvidence, which matches subscription patterns across
+    // the whole map. The only charges this narrowing lets back in are unmapped
+    // recurring ones -- and for those, counting them is usually right: a
+    // monthly "AMAZON PANTRY" charge genuinely is Amazon usage.
+    const base = judge(sub, txns, new Set(sub.chargeIds), {
       asOf: asOfDate,
       windowStart,
       lookbackDays,
