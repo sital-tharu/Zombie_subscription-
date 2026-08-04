@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { ingestScreenshot, recordAnswer } from "@/lib/ingest";
-import { generateProposal, setProposalDecision } from "@/lib/plan-service";
+import {
+  generateProposal,
+  setProposalDecision,
+  toggleChecklistItem,
+} from "@/lib/plan-service";
 
 /**
  * Server actions for the dashboard's own controls.
@@ -61,5 +65,11 @@ export async function generatePlanAction(): Promise<{ fallbackReason: string | n
 /** The agent proposes; the human disposes. */
 export async function decideAction(id: string, status: "accepted" | "rejected") {
   await setProposalDecision(id, status);
+  revalidatePath("/");
+}
+
+/** Tick a cancellation off the checklist. Accepting produces work, not just a status. */
+export async function toggleChecklistAction(id: string, merchantKey: string) {
+  await toggleChecklistItem(id, merchantKey);
   revalidatePath("/");
 }

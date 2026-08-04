@@ -5,6 +5,7 @@ import { VerdictCard } from "@/components/verdict-card";
 import { analyze, LOOKBACK_DAYS } from "@/lib/correlate";
 import { inr, monthsLabel, shortDate } from "@/lib/format";
 import { hasGeminiKey } from "@/lib/gemini";
+import { cancelGuidance } from "@/lib/merchant-map";
 import {
   getStore,
   readWasTruncated,
@@ -32,8 +33,19 @@ export default async function Home() {
 
   const result = analyze(transactions, undefined, { answers });
   const flagged = result.verdicts.filter((v) => v.verdict === "likely-unused");
-  const merchantNames = Object.fromEntries(
-    result.verdicts.map((v) => [v.merchantKey, v.merchant]),
+  // Everything the plan panel needs about each service, resolved server-side.
+  // The alternative is importing the merchant map into a client component,
+  // which would ship all 21 entries and their patterns to the browser for the
+  // sake of two strings.
+  const services = Object.fromEntries(
+    result.verdicts.map((v) => [
+      v.merchantKey,
+      {
+        name: v.merchant,
+        monthlyAmount: v.monthlyAmount,
+        ...cancelGuidance(v.merchantKey),
+      },
+    ]),
   );
 
   return (
@@ -134,7 +146,7 @@ export default async function Home() {
               title="Your plan"
               subtitle="A checklist, not an action. Nothing is cancelled on your behalf — ever."
             />
-            <PlanPanel proposal={proposal} merchantNames={merchantNames} />
+            <PlanPanel proposal={proposal} services={services} />
           </section>
         </>
       )}

@@ -139,3 +139,25 @@ export async function setProposalDecision(
   const store = await getStore();
   await store.setProposalStatus(id, status);
 }
+
+/**
+ * Tick or untick one cancellation. Read-modify-write against the stored
+ * proposal rather than trusting a list sent by the client, so a stale browser
+ * tab cannot wipe progress made elsewhere.
+ */
+export async function toggleChecklistItem(
+  id: string,
+  merchantKey: string,
+): Promise<string[]> {
+  const store = await getStore();
+  const proposal = await store.latestProposal();
+  if (!proposal || proposal.id !== id) return [];
+
+  const done = new Set(proposal.completedItems ?? []);
+  if (done.has(merchantKey)) done.delete(merchantKey);
+  else done.add(merchantKey);
+
+  const next = [...done];
+  await store.setProposalChecklist(id, next);
+  return next;
+}

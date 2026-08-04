@@ -21,10 +21,12 @@ import {
 } from "../src/lib/correlate";
 import { addDaysIso, round2 } from "../src/lib/dates";
 import {
+  cancelGuidance,
   lookupByKey,
   matchesPattern,
   MERCHANTS,
   merchantKeyOf,
+  merchantsWithoutCancelHint,
   tokenize,
   validateMerchantMap,
 } from "../src/lib/merchant-map";
@@ -258,6 +260,18 @@ check("L1: monthlyTotal sums the detected subscriptions", () => {
 check("MAP: validateMerchantMap reports no problems", () => {
   assert.deepStrictEqual(validateMerchantMap(), []);
   assert.strictEqual(MERCHANTS.length, 21);
+});
+
+check("MAP: every mapped service says how to cancel it", () => {
+  // A blank row on the cancellation checklist reads as "we forgot", not as
+  // "we don't know". Unmapped merchants get honest generic guidance instead.
+  assert.deepStrictEqual(merchantsWithoutCancelHint(), []);
+  const prime = cancelGuidance("amazon-prime");
+  assert.ok(prime.hint.length > 0);
+  assert.ok(prime.url?.startsWith("https://"));
+  const unknown = cancelGuidance("some-merchant-we-never-mapped");
+  assert.ok(unknown.hint.length > 0, "unmapped merchants still get guidance");
+  assert.strictEqual(unknown.url, undefined, "and never a fabricated link");
 });
 
 check("MAP: no subscription pattern anywhere is usage evidence for any entry", () => {

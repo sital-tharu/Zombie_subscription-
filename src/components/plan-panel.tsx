@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { decideAction, generatePlanAction } from "@/app/actions";
+import { decideAction, generatePlanAction, toggleChecklistAction } from "@/app/actions";
 import { inr } from "@/lib/format";
 import type { StoredProposal } from "@/lib/store";
 
@@ -12,21 +12,30 @@ const ACTION_STYLE: Record<string, string> = {
   keep: "text-[var(--color-alive)] bg-[var(--color-alive-dim)]",
 };
 
+export interface ServiceInfo {
+  name: string;
+  monthlyAmount: number;
+  hint: string;
+  url?: string;
+}
+
 /**
- * Demo beat six.
+ * Demo beat six, and the answer to "so what does accepting actually do?"
  *
- * The two figures shown here come from the engine and are stored on the
- * proposal alongside the prose. Gemini writes the sentences; if it ever
- * introduces a number that was not handed to it, the whole response is
- * discarded and the deterministic plan is shown instead -- and the panel says
- * which one you are looking at.
+ * Accepting used to write a status and produce nothing. Now it reveals a
+ * cancellation checklist: what to cancel, what each one stops, where to do it,
+ * and how much is still on the table. The agent still cancels nothing — that is
+ * a permanent product principle — but it no longer leaves the user at a dead end.
+ *
+ * Every figure here comes from the engine via the stored proposal. Gemini wrote
+ * the prose and nothing else.
  */
 export function PlanPanel({
   proposal,
-  merchantNames,
+  services,
 }: {
   proposal: StoredProposal | null;
-  merchantNames: Record<string, string>;
+  services: Record<string, ServiceInfo>;
 }) {
   const [pending, startTransition] = useTransition();
   const [note, setNote] = useState<string | null>(null);
@@ -62,6 +71,12 @@ export function PlanPanel({
     );
   }
 
+  const cancels = proposal.items.filter((i) => i.action === "cancel");
+  const done = new Set(proposal.completedItems ?? []);
+  const securedMonthly = cancels
+    .filter((i) => done.has(i.merchantKey))
+    .reduce((sum, i) => sum + (services[i.merchantKey]?.monthlyAmount ?? 0), 0);
+
   return (
     <div className="rounded-xl border border-[var(--color-edge)] bg-[var(--color-panel)] p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -84,13 +99,92 @@ export function PlanPanel({
             </span>
             <span className="min-w-0">
               <span className="font-medium">
-                {merchantNames[item.merchantKey] ?? item.merchantKey}
+                {services[item.merchantKey]?.name ?? item.merchantKey}
               </span>
               <span className="text-[var(--color-muted)]"> — {item.rationale}</span>
             </span>
           </li>
         ))}
       </ul>
+
+      {proposal.status === "accepted" && cancels.length > 0 && (
+        <div className="mt-6 border-t border-[var(--color-edge)] pt-5">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">Your cancellation checklist</h3>
+            <span className="text-sm text-[var(--color-muted)]">
+              <span className="tnum">
+                {done.size} of {cancels.length}
+              </span>{" "}
+              done ·{" "}
+              <span className="tnum text-[var(--color-alive)]">
+                {inr(securedMonthly * 12)}
+              </span>{" "}
+              of {inr(proposal.annualSavings)} secured
+            </span>
+          </div>
+
+          <ul className="space-y-2">
+            {cancels.map((item) => {
+              const service = services[item.merchantKey];
+              const ticked = done.has(item.merchantKey);
+              return (
+                <li
+                  key={item.merchantKey}
+                  className={`flex gap-3 rounded-lg border border-[var(--color-edge)] p-3 transition-opacity ${ticked ? "opacity-55" : ""}`}
+                >
+                  <button
+                    type="button"
+                    disabled={pending}
+                    aria-pressed={ticked}
+                    onClick={() =>
+                      startTransition(async () => {
+                        await toggleChecklistAction(proposal.id, item.merchantKey);
+                      })
+                    }
+                    className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-50 ${
+                      ticked
+                        ? "border-[var(--color-alive)] bg-[var(--color-alive)] text-[var(--color-ink)]"
+                        : "border-[var(--color-edge)] hover:border-[var(--color-muted)]"
+                    }`}
+                  >
+                    {ticked && (
+                      <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+                        <path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className={`font-medium ${ticked ? "line-through" : ""}`}>
+                        {service?.name ?? item.merchantKey}
+                      </span>
+                      <span className="tnum text-sm text-[var(--color-muted)]">
+                        stops {inr(service?.monthlyAmount ?? 0)}/month
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-muted)]">{service?.hint}</p>
+                    {service?.url && (
+                      <a
+                        href={service.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="mt-1 inline-block text-sm text-[var(--color-alive)] underline underline-offset-4"
+                      >
+                        Open the cancellation page →
+                      </a>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-xs text-[var(--color-dim)]">
+            You cancel these yourself. Nothing on this list is actioned for you — the agent
+            proposes, you decide.
+          </p>
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[var(--color-edge)] pt-5">
         {proposal.status === "pending" ? (
@@ -112,7 +206,7 @@ export function PlanPanel({
               Not now
             </button>
             <span className="text-xs text-[var(--color-dim)]">
-              Nothing is cancelled for you — this is a checklist, not an action.
+              Accepting gives you a checklist — nothing is cancelled for you.
             </span>
           </>
         ) : (

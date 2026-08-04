@@ -27,6 +27,18 @@ interface MerchantBase {
    * globally, and they always beat usage patterns.
    */
   subscriptionPatterns: readonly string[];
+  /**
+   * Where to go to cancel. Prose, not a URL, because most Indian services
+   * cancel in-app with no stable web page -- and a hint that is always right
+   * beats a link that is sometimes dead.
+   */
+  cancelHint?: string;
+  /**
+   * A direct cancellation page, ONLY where it is well known and stable. Absent
+   * is the correct value for anything in-app; an invented URL that 404s on
+   * stage is worse than no link at all.
+   */
+  cancelUrl?: string;
 }
 
 /** A service whose genuine use leaves a separate financial footprint. */
@@ -126,6 +138,8 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["amazon prime", "amazonprime", "prime video"],
     usagePatterns: ["amazon", "amzn"],
     usageLabel: "Amazon orders",
+    cancelHint: "Amazon → Account → Prime membership → End membership",
+    cancelUrl: "https://www.amazon.in/gp/primecentral",
   },
   {
     key: "swiggy-one",
@@ -134,6 +148,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["swiggy one", "swiggyone", "swiggy super"],
     usagePatterns: ["swiggy", "instamart", "bundl"],
     usageLabel: "Swiggy orders",
+    cancelHint: "Swiggy app → Account → Swiggy One → Manage plan. Autopay also cancels from your UPI app.",
   },
   {
     key: "zomato-gold",
@@ -142,6 +157,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["zomato gold", "zomatogold", "zomato pro"],
     usagePatterns: ["zomato"],
     usageLabel: "Zomato orders",
+    cancelHint: "Zomato app → Profile → Gold → Manage. Stop the UPI autopay mandate as well.",
   },
   {
     key: "zepto-pass",
@@ -151,6 +167,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     // kiranakart is Zepto's legal payee and bills for orders too -- usage only.
     usagePatterns: ["zepto", "kiranakart"],
     usageLabel: "Zepto orders",
+    cancelHint: "Zepto app → Profile → Zepto Pass → Manage subscription",
   },
   {
     key: "bigbasket-star",
@@ -159,6 +176,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["bbstar", "bb star", "bigbasket star"],
     usagePatterns: ["bigbasket", "bbdaily", "bb daily", "bbnow", "supermarket grocery"],
     usageLabel: "BigBasket orders",
+    cancelHint: "BigBasket app → Account → bbstar membership → Manage",
   },
   {
     key: "uber-one",
@@ -167,6 +185,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["uber one", "uberone"],
     usagePatterns: ["uber"],
     usageLabel: "Uber rides",
+    cancelHint: "Uber app → Account → Uber One → Manage membership → End membership",
   },
   {
     key: "ola-select",
@@ -175,6 +194,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["ola select", "ola pass", "olaselect"],
     usagePatterns: ["ola", "ani technologies"],
     usageLabel: "Ola rides",
+    cancelHint: "Ola app → Menu → Ola Select → Manage subscription",
   },
   {
     key: "cultfit-elite",
@@ -183,6 +203,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["cult pass", "cultfit elite", "cult fit elite"],
     usagePatterns: ["cultfit", "cult fit", "curefit", "cure fit"],
     usageLabel: "Cult.fit bookings",
+    cancelHint: "Cult.fit app → Profile → Memberships → Cancel or pause",
   },
 
   // --- No observable footprint. Watching, listening or storing costs nothing
@@ -193,6 +214,8 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["netflix"],
     question: "Have you watched anything on Netflix in the last {days} days?",
+    cancelHint: "Netflix → Account → Cancel Membership",
+    cancelUrl: "https://www.netflix.com/cancelplan",
   },
   {
     key: "spotify",
@@ -200,6 +223,8 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["spotify"],
     question: "Have you listened to anything on Spotify in the last {days} days?",
+    cancelHint: "Spotify → Account → Your plan → Change or cancel",
+    cancelUrl: "https://www.spotify.com/account/subscription/",
   },
   {
     key: "hotstar",
@@ -207,6 +232,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["hotstar", "jiohotstar", "novi digital"],
     question: "Have you watched anything on JioHotstar in the last {days} days?",
+    cancelHint: "JioHotstar → My Account → Subscription → Cancel. If billed via Jio, cancel from the Jio app instead.",
   },
   {
     key: "zee5",
@@ -214,6 +240,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["zee5"],
     question: "Have you watched anything on ZEE5 in the last {days} days?",
+    cancelHint: "ZEE5 → My Subscriptions → Cancel auto-renewal",
   },
   {
     key: "sonyliv",
@@ -221,6 +248,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["sonyliv", "sony liv", "culver max"],
     question: "Have you watched anything on SonyLIV in the last {days} days?",
+    cancelHint: "SonyLIV → My Account → Manage Subscription → Cancel",
   },
   {
     key: "jiosaavn",
@@ -230,6 +258,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     // substring, so both spellings have to be listed.
     subscriptionPatterns: ["jiosaavn", "jio saavn", "saavn"],
     question: "Have you listened to anything on JioSaavn in the last {days} days?",
+    cancelHint: "JioSaavn → Settings → Manage Subscription → Cancel renewal",
   },
   {
     key: "gaana",
@@ -239,6 +268,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     // pattern owned by two entries makes both verdicts unreliable.
     subscriptionPatterns: ["gaana"],
     question: "Have you listened to anything on Gaana in the last {days} days?",
+    cancelHint: "Gaana → Settings → Gaana Plus → Cancel subscription",
   },
   {
     key: "audible",
@@ -246,6 +276,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["audible"],
     question: "Have you listened to an Audible title in the last {days} days?",
+    cancelHint: "Audible → Account Details → Cancel membership. Credits you already own stay yours.",
   },
   {
     key: "youtube-premium",
@@ -254,6 +285,8 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     // Both tokens required. A bare "google" would collide with Google One.
     subscriptionPatterns: ["youtube premium", "yt premium"],
     question: "Have you used YouTube Premium in the last {days} days?",
+    cancelHint: "YouTube → Purchases and memberships → Manage → Cancel",
+    cancelUrl: "https://www.youtube.com/paid_memberships",
   },
   {
     key: "google-one",
@@ -261,6 +294,8 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["google one", "google storage"],
     question: "Are you still relying on the extra Google One storage?",
+    cancelHint: "Google One → Settings → Cancel membership. Check your storage use first — cancelling reverts you to 15 GB.",
+    cancelUrl: "https://one.google.com/settings",
   },
   {
     key: "apple-icloud",
@@ -271,6 +306,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     // which is what the gap handler is for.
     subscriptionPatterns: ["icloud", "apple icloud"],
     question: "Are you still relying on the extra iCloud+ storage?",
+    cancelHint: "iPhone → Settings → your name → Subscriptions → iCloud+ → Cancel. Free up storage first, or photos may stop backing up.",
   },
   {
     key: "times-prime",
@@ -278,6 +314,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["times prime", "timesprime"],
     question: "Have you used any Times Prime benefit in the last {days} days?",
+    cancelHint: "Times Prime app → Profile → Membership → Cancel auto-renewal",
   },
   {
     key: "airtel-xstream",
@@ -285,6 +322,7 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     footprint: "none",
     subscriptionPatterns: ["airtel xstream", "xstream play"],
     question: "Have you watched anything on Airtel Xstream Play in the last {days} days?",
+    cancelHint: "Airtel Thanks app → Manage Services → Xstream Play → Cancel",
   },
 ];
 
@@ -377,6 +415,29 @@ export function lookupSubscription(merchant: string): MerchantEntry | undefined 
 
 export function lookupByKey(key: string): MerchantEntry | undefined {
   return BY_KEY.get(key);
+}
+
+/**
+ * How to cancel this service. Falls back to honest generic guidance for
+ * merchants we do not recognise -- the alternative is a blank row on the
+ * checklist, which reads as "we forgot" rather than "we don't know".
+ */
+export function cancelGuidance(merchantKey: string): {
+  hint: string;
+  url?: string;
+} {
+  const entry = BY_KEY.get(merchantKey);
+  if (entry?.cancelHint) {
+    return { hint: entry.cancelHint, url: entry.cancelUrl };
+  }
+  return {
+    hint: "Cancel in the service's own app or website. If it bills by UPI autopay, you can also stop the mandate from your UPI app.",
+  };
+}
+
+/** Mapped entries missing cancellation guidance. Reported by tests as a warning. */
+export function merchantsWithoutCancelHint(): string[] {
+  return MERCHANTS.filter((m) => !m.cancelHint).map((m) => m.key);
 }
 
 /**
