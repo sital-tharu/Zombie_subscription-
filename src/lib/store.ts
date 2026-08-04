@@ -81,6 +81,22 @@ let cached: Store | null = null;
  */
 export async function getStore(): Promise<Store> {
   if (!cached) {
+    if (!hasFirebaseCredentials() && process.env.VERCEL) {
+      // The local adapter writes to ./data, and a serverless filesystem is
+      // read-only. Falling back there on Vercel produces a dashboard that
+      // renders an empty state and silently discards every write -- which
+      // looks like an empty account rather than a misconfiguration. Fail loudly
+      // instead.
+      //
+      // Keyed on VERCEL rather than NODE_ENV on purpose: `npm run build` sets
+      // NODE_ENV=production locally, and a clean clone must still build without
+      // any Firebase setup.
+      throw new Error(
+        "No Firebase credentials in a Vercel deployment. Set FIREBASE_SERVICE_ACCOUNT_JSON " +
+          "to the full service account JSON — the file-path variable cannot work here, " +
+          "because secrets/ is gitignored and never deployed.",
+      );
+    }
     cached = hasFirebaseCredentials() ? await firestoreStore() : localStore();
   }
   return cached;

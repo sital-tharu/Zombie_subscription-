@@ -123,6 +123,35 @@ set.
 | `POST /api/verdicts/{merchantKey}/answer` | `{ "used": boolean }` |
 | `POST /api/proposal` | Generate a plan · `PATCH` with `{ id, status }` to accept or reject |
 
+## Deploying to Vercel
+
+The repo builds as-is; the only work is environment variables.
+
+1. [vercel.com/new](https://vercel.com/new) → import
+   `sital-tharu/Zombie_subscription-`. Framework detection and build settings
+   need no changes.
+2. Set three variables under **Settings → Environment Variables**, each applied
+   to Production, Preview *and* Development:
+
+   | Variable | Value |
+   |---|---|
+   | `OWNER_KEY` | Your passcode. Sent as the `x-owner-key` header on write routes. |
+   | `GEMINI_API_KEY` | From [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+   | `FIREBASE_SERVICE_ACCOUNT_JSON` | The **entire** service account JSON, collapsed to one line |
+
+3. Deploy.
+
+**Do not set `FIREBASE_SERVICE_ACCOUNT_PATH` on Vercel.** `secrets/` is
+gitignored and is never deployed, so the file cannot exist there — which is why
+the store accepts the credentials inline as an alternative.
+
+If Firebase credentials are missing in a Vercel deployment the app throws a
+named error at startup rather than falling back to the local JSON store. That
+fallback writes to `./data`, a serverless filesystem is read-only, and the
+result would be a dashboard that renders an empty state while silently
+discarding every write — indistinguishable from an empty account. Failing
+loudly is the correct behaviour for a misconfigured deployment.
+
 ## Status
 
 P0 is complete: engine, tests, seed, storage, dashboard, evidence chains, gap
