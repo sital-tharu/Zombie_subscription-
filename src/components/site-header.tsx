@@ -36,22 +36,30 @@ export async function SiteHeader() {
           </span>
         </Link>
 
-        <span className="ml-auto flex flex-wrap items-center gap-3">
-          {hasGeminiKey() && (
-            <Link
-              href="/upload"
-              className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors hover:border-[var(--color-muted)]"
-            >
-              + Add a screenshot
-            </Link>
-          )}
-          <GmailSync
-            configured={gmailReady}
-            protectedByKey={ownerKeyConfigured()}
-            connected={gmailConnected}
-            label={gmailLabel()}
-          />
-        </span>
+        {/* Everything after this is pushed right. A spacer rather than ml-auto
+            on the first control, because that control disappears without a
+            Gemini key and the alignment would go with it. */}
+        <span className="ml-auto" aria-hidden="true" />
+
+        {hasGeminiKey() && (
+          <Link
+            href="/upload"
+            className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors hover:border-[var(--color-muted)]"
+          >
+            + Add a screenshot
+          </Link>
+        )}
+
+        {/* Renders a fragment: the button group, then any result message as a
+            basis-full item. Placed directly in this row rather than inside a
+            wrapper so that full-width means the header's width, which is what
+            lets a long message wrap underneath instead of stretching the row. */}
+        <GmailSync
+          configured={gmailReady}
+          protectedByKey={ownerKeyConfigured()}
+          connected={gmailConnected}
+          label={gmailLabel()}
+        />
       </nav>
     </header>
   );

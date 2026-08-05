@@ -230,7 +230,7 @@ export default async function Home({
   );
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-10">
+    <main className="mx-auto w-full max-w-3xl px-6 pt-6 pb-12">
       {transactions.length === 0 ? (
         <EmptyState />
       ) : (

@@ -11,7 +11,7 @@ export const metadata = {
 
 export default function UploadPage() {
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-10">
+    <main className="mx-auto w-full max-w-2xl px-6 pt-6 pb-12">
       <h1 className="text-xl font-semibold">Add a payment screenshot</h1>
       <p className="mt-2 text-[13px] text-[var(--color-muted)]">
         Gemini reads the payee names, dates and amounts off the image. That is the only

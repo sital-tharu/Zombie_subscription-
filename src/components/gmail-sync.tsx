@@ -128,19 +128,20 @@ export function GmailSync({
     };
 
     return (
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={connect} disabled={pending} className={BUTTON}>
-          {pending ? "Opening Google…" : "Connect Gmail"}
-        </button>
-        {result && !result.ok && (
-          <span className="text-xs text-[var(--color-zombie)]">{result.message}</span>
-        )}
-      </div>
+      <>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={connect} disabled={pending} className={BUTTON}>
+            {pending ? "Opening Google…" : "Connect Gmail"}
+          </button>
+        </div>
+        {result && !result.ok && <Note ok={false}>{result.message}</Note>}
+      </>
     );
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <>
+      <div className="flex items-center gap-3">
       <button
         type="button"
         disabled={pending}
@@ -170,13 +171,29 @@ export function GmailSync({
       >
         Disconnect
       </button>
-      {result && (
-        <span
-          className={`text-xs ${result.ok ? "text-[var(--color-alive)]" : "text-[var(--color-zombie)]"}`}
-        >
-          {result.message}
-        </span>
-      )}
     </div>
+      {result && <Note ok={result.ok}>{result.message}</Note>}
+    </>
+  );
+}
+
+/**
+ * A sync result, on a line of its own.
+ *
+ * `basis-full` makes it a full-width item in the header's wrapping flex row, so
+ * a sentence like "Read 12 messages, 4 bills added to your transactions" pushes
+ * the header DOWN rather than stretching the button row sideways and shoving
+ * the wordmark off the left. The header grows only while there is something to
+ * say, and returns to one line afterwards.
+ */
+function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <p
+      className={`basis-full text-right text-xs ${
+        ok ? "text-[var(--color-alive)]" : "text-[var(--color-zombie)]"
+      }`}
+    >
+      {children}
+    </p>
   );
 }
