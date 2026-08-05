@@ -41,12 +41,43 @@ footprint at all. Zombie does not guess at those. They get
 user. No evidence means no claim; unanswered unknowns contribute exactly zero
 to the headline totals.
 
+## What's in it
+
+**Screenshot intake.** Drop a GPay screenshot on `/upload`; Gemini reads it,
+Zod validates it, and the engine never sees anything unvalidated.
+
+**Gmail sync.** Connect once and Zombie reads a single Gmail label, in both
+directions: bills become transactions with real amounts (tagged `Source = mail`
+on the dashboard), and order confirmations become usage evidence. The scope is
+`gmail.readonly` because a bill's amount lives in the message *body* — a
+header-only scope cannot read one. There is no label-scoped OAuth scope in
+existence, so the label filter is a promise this code keeps, not one Google
+enforces. Said plainly here because it is the widest permission the app asks
+for.
+
+**The month navigator.** Page back to any earlier month and the entire engine
+re-runs as of that month's end — so April shows the verdicts the agent would
+genuinely have reached in April, not today's verdicts filtered. A subscription
+used then and abandoned since correctly reads "used" in April. This works only
+because verdicts are computed on every request and never stored.
+
+**Cancellation ticks, with a guard.** Tick an item once you've actually
+cancelled it and it leaves the monthly total. If a charge shows up for it
+afterwards, the engine puts it back and stops claiming the saving — an agent
+that keeps congratulating you for a cancellation that silently failed is worse
+than one that never tracked it.
+
+**A chat assistant** that can restate the dashboard but cannot out-run it.
+Every figure is computed *before* Gemini is called; if a reply contains a number
+that wasn't supplied, the whole reply is thrown away and a code-authored answer
+ships instead.
+
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env.local   # fill in GEMINI_API_KEY and OWNER_KEY
-npm run test:logic           # 58 engine checks — needs no credentials at all
+npm run test:logic           # 100 engine checks — needs no credentials at all
 npm run seed                 # scripted demo history with planted zombies
 npm run dev                  # localhost:3000
 ```
@@ -64,8 +95,9 @@ deterministically from the same figures.
 | `npm run dev` | Dev server on localhost:3000 |
 | `npm run build` / `npm run start` | Production build / serve |
 | `npm run lint` | ESLint, including the engine purity boundary |
-| `npm run test:logic` | 58 engine regression checks — pure functions, no creds |
+| `npm run test:logic` | 100 engine regression checks — pure functions, no creds |
 | `npm run seed` | Seed date-relative demo history and print the verdicts |
+| `npm run demo:reset` | Purge real data, re-seed, and fail loudly if any figure drifted |
 | `npm run wipe:seed` | Remove demo data, leaving real transactions |
 | `npm run wipe:real` | Remove real transactions, leaving demo data |
 | `npm run ingest -- --dry-run` | Read every image in `samples/` without writing |
@@ -74,14 +106,23 @@ deterministically from the same figures.
 
 ## Architecture
 
-Three layers, described in full in [`docs/architecture.md`](docs/architecture.md):
+Described in full in [`docs/architecture.md`](docs/architecture.md):
 
 1. **Recurring detection** — same merchant, 25–35 day cadence, amount within
    ±10%, 3+ occurrences. Table stakes.
 2. **Usage correlation** — subscription-to-usage merchant mapping over a 90-day
-   lookback, across 21 Indian services. The differentiator.
+   lookback, across 32 Indian services. The differentiator.
+   - **2b — email evidence.** Order confirmations and dispatch notices count as
+     use, with the same precedence rule that protects Layer 2.
+   - **2c — the evidence gap handler.** 24 of the 32 services leave no
+     footprint at all. Those are asked about, never guessed at.
 3. **Zombie score and proposal** — rupees traceable to transaction ids, ranked,
    turned into language by Gemini but never into numbers.
+
+The 90-day window and the score deliberately read different ranges: the window
+asks *"any usage in the last 90 days?"* and decides the **verdict**, while last
+usage is sought across **all** history and bounds the **score**. Conflating them
+roughly doubles the reported waste.
 
 ### The trap worth knowing about
 
@@ -107,7 +148,7 @@ Netflix           unknown        low     ₹0       no footprint — we ask inst
 KUKU FM PREMIUM   unknown        none    ₹0       unmapped merchant — we ask instead
 Swiggy One        used           high    ₹0       6 orders in the last 90 days
 
-Total wasted ₹2,893 · Annual savings ₹5,988
+Total wasted ₹2,893 · Annual savings ₹5,988 · Monthly run rate ₹1,746
 ```
 
 Those figures are asserted at four anchor dates through March 2027, because
@@ -124,7 +165,9 @@ set.
 |---|---|
 | `POST /api/extract` | multipart `screenshot` → extracted transactions |
 | `POST /api/verdicts/{merchantKey}/answer` | `{ "used": boolean }` |
-| `POST /api/proposal` | Generate a plan · `PATCH` with `{ id, status }` to accept or reject |
+| `POST /api/proposal` | Generate a plan · `PATCH` with `{ id, status }` to accept or reject · `GET` for the latest |
+| `GET /api/gmail/auth` · `/callback` | OAuth handshake |
+| `POST /api/gmail/sync` | Read the labelled mail; returns extracted bills and usage evidence |
 
 ## Live deployment
 
@@ -189,9 +232,14 @@ loudly is the correct behaviour for a misconfigured deployment.
 
 ## Status
 
-P0 is complete: engine, tests, seed, storage, dashboard, evidence chains, gap
-handler, screenshot intake and grounded proposals. See `PLAN.md` for what
-remains and [`docs/PRD.md`](docs/PRD.md) for the product spec.
+P0 complete: engine, tests, seed, storage, dashboard, evidence chains, gap
+handler, screenshot intake and grounded proposals.
+
+P1 complete: Gmail OAuth, email intake and email usage evidence (Layer 2b).
+
+Shipped beyond the original plan: the month navigator, cancellation tracking
+and the chat assistant. See [`docs/PRD.md`](docs/PRD.md) for the product spec
+and [`docs/architecture.md`](docs/architecture.md) for how the pieces fit.
 
 Deliberately out of scope: autonomous cancellation (the agent proposes, the
 human disposes — a permanent product principle), multi-user accounts, bank and
