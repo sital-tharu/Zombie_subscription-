@@ -15,16 +15,86 @@ import { syncGmailAction } from "@/app/actions";
  * HTTP routes.
  */
 export function GmailSync({
+  configured,
   connected,
   label,
   emailCount,
 }: {
+  /** GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET are both present. */
+  configured: boolean;
   connected: boolean;
   label: string;
   emailCount: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Shown rather than hidden. An earlier version rendered nothing at all
+  // without credentials, which left no way to tell an unbuilt feature from an
+  // unconfigured one -- the same silence that made an uploaded screenshot
+  // vanish, and just as unhelpful.
+  if (!configured) {
+    return (
+      <details className="rounded-lg border border-dashed border-[var(--color-edge)]">
+        <summary className="flex items-center gap-2 px-3.5 py-2 text-sm text-[var(--color-muted)]">
+          <svg className="chev size-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M6 4l4 4-4 4"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Connect Gmail — needs setup
+        </summary>
+        <div className="space-y-2 border-t border-[var(--color-edge)] px-3.5 py-3 text-[13px] text-[var(--color-muted)]">
+          <p>
+            Reading order confirmations catches usage this app never sees — a Swiggy
+            order paid by card, an Amazon purchase on a saved wallet. Without it, that
+            spending looks like silence, and silence is what gets flagged as a zombie.
+          </p>
+          <p>Two one-off steps, both yours to do:</p>
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>
+              In the{" "}
+              <a
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-[var(--color-alive)] underline underline-offset-2"
+              >
+                Google Cloud console
+              </a>
+              , enable the Gmail API and create an OAuth client ID of type{" "}
+              <span className="text-[var(--color-fg)]">Web application</span>. Add{" "}
+              <code className="rounded bg-[var(--color-panel-2)] px-1 py-0.5 text-xs">
+                http://localhost:3000/api/gmail/callback
+              </code>{" "}
+              as an authorised redirect URI, plus the same path on your deployment.
+            </li>
+            <li>
+              Put the client id and secret in{" "}
+              <code className="rounded bg-[var(--color-panel-2)] px-1 py-0.5 text-xs">
+                .env.local
+              </code>
+              , then restart the dev server.
+            </li>
+          </ol>
+          <div className="overflow-x-auto rounded-lg bg-[var(--color-panel)] p-3 font-mono text-xs">
+            <div>GMAIL_CLIENT_ID=</div>
+            <div>GMAIL_CLIENT_SECRET=</div>
+            <div>GMAIL_LABEL={label}</div>
+          </div>
+          <p className="text-[var(--color-dim)]">
+            The app asks for the <span className="font-mono">gmail.metadata</span> scope:
+            sender, subject and date only. Message contents are not merely unread — Google
+            does not grant them.
+          </p>
+        </div>
+      </details>
+    );
+  }
 
   if (!connected) {
     return (

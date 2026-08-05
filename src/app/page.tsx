@@ -303,13 +303,12 @@ export default async function Home({
                   + Add a screenshot
                 </Link>
               )}
-              {gmailReady && (
-                <GmailSync
-                  connected={gmailConnected}
-                  label={gmailLabel()}
-                  emailCount={emails.length}
-                />
-              )}
+              <GmailSync
+                configured={gmailReady}
+                connected={gmailConnected}
+                label={gmailLabel()}
+                emailCount={emails.length}
+              />
             </div>
           </div>
 
