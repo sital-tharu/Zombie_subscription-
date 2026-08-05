@@ -20,6 +20,7 @@ import {
 import { hasGeminiKey } from "@/lib/gemini";
 import { gmailLabel } from "@/lib/gmail";
 import { hasGmailCredentials, isGmailConnected } from "@/lib/gmail-auth";
+import { ownerKeyConfigured } from "@/lib/auth";
 import { cancelGuidance } from "@/lib/merchant-map";
 import {
   getStore,
@@ -305,6 +306,7 @@ export default async function Home({
               )}
               <GmailSync
                 configured={gmailReady}
+                protectedByKey={ownerKeyConfigured()}
                 connected={gmailConnected}
                 label={gmailLabel()}
                 emailCount={emails.length}

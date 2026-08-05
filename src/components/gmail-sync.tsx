@@ -1,27 +1,32 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { syncGmailAction } from "@/app/actions";
+import { connectGmailAction, syncGmailAction } from "@/app/actions";
 
 /**
  * Layer 2b's one control.
  *
- * Connecting is a plain link to the owner-gated auth route rather than a
- * fetch: OAuth needs a full-page navigation to Google and back, and there is
- * nothing to intercept in between.
+ * Connecting asks for the owner passcode; syncing does not. That asymmetry is
+ * deliberate. Syncing re-reads mail the owner already labelled, so a passer-by
+ * triggering it achieves nothing. Connecting binds an EXTERNAL account, and on
+ * a public deployment an open connect flow would let a stranger attach their
+ * own mailbox and have their message headers written into a database anyone can
+ * read -- which harms them, not us.
  *
- * Syncing goes through a server action, so the owner passcode never reaches the
- * browser -- the same reason every other control on this dashboard avoids the
- * HTTP routes.
+ * The passcode is typed, never embedded. Both paths go through server actions
+ * rather than the HTTP routes, so no secret is ever shipped to the page.
  */
 export function GmailSync({
   configured,
+  protectedByKey,
   connected,
   label,
   emailCount,
 }: {
   /** GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET are both present. */
   configured: boolean;
+  /** OWNER_KEY is set, so connecting asks for it. */
+  protectedByKey: boolean;
   connected: boolean;
   label: string;
   emailCount: number;
@@ -97,18 +102,41 @@ export function GmailSync({
   }
 
   if (!connected) {
+    // A plain <a> to /api/gmail/auth cannot work: that route is owner-gated and
+    // a browser navigation carries no x-owner-key header, so it 401s. The
+    // passcode is typed by the person instead, checked server-side, and the
+    // consent URL only comes back if it was right.
+    const connect = () => {
+      const key = protectedByKey ? (window.prompt("Owner passcode") ?? "") : "";
+      if (protectedByKey && key === "") return;
+      startTransition(async () => {
+        const outcome = await connectGmailAction(key);
+        if ("error" in outcome) {
+          setResult({ ok: false, message: outcome.error });
+          return;
+        }
+        window.location.href = outcome.url;
+      });
+    };
+
     return (
       <div className="flex flex-wrap items-center gap-3">
-        <a
-          href="/api/gmail/auth"
-          className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)]"
+        <button
+          type="button"
+          onClick={connect}
+          disabled={pending}
+          className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)] disabled:opacity-50"
         >
-          Connect Gmail
-        </a>
-        <span className="text-xs text-[var(--color-dim)]">
-          Reads only message headers, only from a label you choose. Never message
-          contents — Google does not grant them.
-        </span>
+          {pending ? "Opening Google…" : "Connect Gmail"}
+        </button>
+        {result && !result.ok ? (
+          <span className="text-xs text-[var(--color-zombie)]">{result.message}</span>
+        ) : (
+          <span className="text-xs text-[var(--color-dim)]">
+            Reads only message headers, only from a label you choose. Never message
+            contents — Google does not grant them.
+          </span>
+        )}
       </div>
     );
   }

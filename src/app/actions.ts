@@ -1,6 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { ownerKeyMatches } from "@/lib/auth";
+import { consentUrl, hasGmailCredentials } from "@/lib/gmail-auth";
 import {
   forgetAnswer,
   forgetCancellation,
@@ -96,6 +99,34 @@ export async function uploadAction(formData: FormData): Promise<UploadResult> {
 export async function clearAnswerAction(merchantKey: string) {
   await forgetAnswer(merchantKey);
   revalidatePath("/");
+}
+
+/**
+ * Hand back the Google consent URL, once the caller proves they are the owner.
+ *
+ * Connecting Gmail is the one control that cannot follow this file's usual
+ * "server actions are same-origin, so the secret stays on the server" rule.
+ * Every other action is harmless for a passer-by to invoke; this one binds an
+ * external account. Left open on a public deployment, a stranger could complete
+ * the OAuth flow and have THEIR message headers written into a database anyone
+ * can read -- harming them, with our name on it.
+ *
+ * So the human types the passcode. That is not the same as shipping a server
+ * secret to the browser: nothing is embedded in the page, and a wrong answer
+ * gets a consent URL for nobody.
+ */
+export async function connectGmailAction(
+  key: string,
+): Promise<{ url: string } | { error: string }> {
+  if (!ownerKeyMatches(key)) return { error: "That passcode is not right." };
+  if (!hasGmailCredentials()) {
+    return { error: "Gmail is not configured. Set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET." };
+  }
+  const headerList = await headers();
+  const host = headerList.get("host");
+  if (!host) return { error: "Could not determine this app's own address." };
+  const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return { url: consentUrl(`${proto}://${host}`) };
 }
 
 /**
