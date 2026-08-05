@@ -21,12 +21,26 @@
 import "./load-env";
 import { analyze } from "../src/lib/correlate";
 import { buildSeedTransactions, EXPECTED_SEED_OUTCOME } from "../src/lib/seed-data";
-import { getStore } from "../src/lib/store";
+import { getStore, isQuotaError } from "../src/lib/store";
 import { inr } from "../src/lib/format";
 
+/**
+ * Hours until Firestore's daily quota rolls over, which happens at midnight US
+ * Pacific. Worth stating in local time: "midnight US Pacific" is a fact a
+ * person then has to convert while their demo is broken.
+ */
+function quotaResetHint(): string {
+  const now = new Date();
+  const pacific = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+  const msLeft = ((24 - pacific.getHours()) * 60 - pacific.getMinutes()) * 60_000;
+  const local = new Date(now.getTime() + msLeft);
+  return `${local.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} (${(msLeft / 3_600_000).toFixed(1)}h away)`;
+}
+
 async function main(): Promise<void> {
+  // The store announces its own mode on first resolution, so nothing to print
+  // here -- a second line saying the same thing reads like two stores opened.
   const store = await getStore();
-  console.log(`Store: ${store.mode}\n`);
 
   // 1. Real transactions -- the privacy one. The deployed dashboard is publicly
   //    readable and has no login of its own.
@@ -118,6 +132,33 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  /*
+   * A quota refusal is not a bug, and a 40-line gRPC stack trace says it is.
+   * The dashboard already tells these two apart -- see StoreDown in
+   * src/app/page.tsx -- and the command a person runs while preparing a demo
+   * should do the same, because it is the one place they are most likely to be
+   * in a hurry and least likely to read a trace carefully.
+   */
+  if (isQuotaError(error)) {
+    console.error(
+      [
+        "",
+        "Firestore is out of read quota for today. Nothing is broken and no data is lost.",
+        "",
+        `  The free tier allows 50,000 document reads a day and the counter resets at`,
+        `  midnight US Pacific -- for you that is ${quotaResetHint()}.`,
+        "",
+        "  Re-run this command after that and the demo will be restored and verified.",
+        "  Until then you can work entirely off the local store, which never touches",
+        "  Firestore:",
+        "",
+        "    ZOMBIE_STORE=local npm run seed",
+        "    ZOMBIE_STORE=local npm run dev",
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
   console.error(error);
   process.exit(1);
 });
