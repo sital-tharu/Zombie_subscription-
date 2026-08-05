@@ -51,6 +51,8 @@ export interface Store {
   saveProposal(proposal: StoredProposal): Promise<void>;
   latestProposal(): Promise<StoredProposal | null>;
   setProposalStatus(id: string, status: StoredProposal["status"]): Promise<void>;
+  /** Discard every stored proposal. Demo tooling; nothing in the app calls it. */
+  clearProposals(): Promise<number>;
 }
 
 const TRANSACTIONS = "transactions";
@@ -287,6 +289,16 @@ async function firestoreStore(): Promise<Store> {
       await db.collection(PROPOSALS).doc(id).set({ status }, { merge: true });
     },
 
+    async clearProposals() {
+      const snap = await db.collection(PROPOSALS).get();
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = db.batch();
+        for (const doc of snap.docs.slice(i, i + 400)) batch.delete(doc.ref);
+        await batch.commit();
+      }
+      return snap.docs.length;
+    },
+
   };
 }
 
@@ -416,6 +428,14 @@ function localStore(): Store {
       const data = read();
       data.proposals = data.proposals.map((p) => (p.id === id ? { ...p, status } : p));
       write(data);
+    },
+
+    async clearProposals() {
+      const data = read();
+      const count = data.proposals.length;
+      data.proposals = [];
+      write(data);
+      return count;
     },
 
   };

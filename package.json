@@ -11,6 +11,7 @@
     "seed": "node node_modules/tsx/dist/cli.mjs scripts/seed.ts",
     "wipe:seed": "node node_modules/tsx/dist/cli.mjs scripts/wipe-seed.ts",
     "wipe:real": "node node_modules/tsx/dist/cli.mjs scripts/wipe-real.ts",
+    "demo:reset": "node node_modules/tsx/dist/cli.mjs scripts/reset-demo.ts",
     "ingest": "node node_modules/tsx/dist/cli.mjs scripts/ingest.ts",
     "test:logic": "node node_modules/tsx/dist/cli.mjs scripts/test-logic.ts",
     "probe:gemini": "node node_modules/tsx/dist/cli.mjs scripts/probe-gemini.ts",
