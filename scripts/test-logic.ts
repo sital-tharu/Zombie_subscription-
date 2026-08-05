@@ -22,6 +22,7 @@ import {
 import { addDaysIso, round2 } from "../src/lib/dates";
 import {
   cancelGuidance,
+  isEmailUsageEvidence,
   lookupByKey,
   matchesPattern,
   MERCHANTS,
@@ -1007,6 +1008,166 @@ check("CANCEL: no cancellations leaves every seeded figure untouched", () => {
   const withEmpty = analyze(txns, ASOF, { cancellations: [] });
   assert.deepStrictEqual(withEmpty, plain, "the option must be inert when unused");
   assert.strictEqual(plain.annualSavings, EXPECTED_SEED_OUTCOME.annualSavings);
+});
+
+// ---------------------------------------------------------------------------
+// EMAIL -- Layer 2b.
+//
+// The self-validation trap, re-solved in a second domain. Amazon writes to you
+// when your order ships and when your Prime membership renews; both are from
+// Amazon, both mention Prime, and only one is evidence that you used anything.
+// Get the precedence wrong and a renewal notice proves the subscription it is
+// billing for is in use -- silently, with a plausible evidence chain.
+// ---------------------------------------------------------------------------
+
+/** An email fixture, dated `days` before ASOF. */
+let mailSeq = 0;
+function mail(from: string, subject: string, days: number) {
+  return { id: `m${++mailSeq}`, from, subject, date: ago(days) };
+}
+
+check("EMAIL: an order confirmation proves use where no transaction does", () => {
+  // Prime with zero Amazon purchases in the transaction history -- the canonical
+  // zombie. One dispatch email and it is not a zombie at all, because the user
+  // bought something; this app just never saw the payment.
+  const emails = [mail("ship-confirm@amazon.in", "Your order has shipped", 10)];
+  const result = analyze(primeFixture(), ASOF, { emails });
+  const prime = verdictFor(result, "amazon-prime");
+
+  assert.strictEqual(prime.verdict, "used");
+  assert.strictEqual(prime.zombieScore, 0, "a false zombie is the worst failure here");
+  assert.strictEqual(prime.evidence.emailMatchesInWindow.length, 1);
+  assert.strictEqual(prime.evidence.matchesInWindow.length, 0, "no transaction said so");
+  assert.strictEqual(result.totalWasted, 0);
+});
+
+check("EMAIL: THE TRAP -- a renewal notice is not proof of use", () => {
+  // Same sender, same brand, billing subject. If this counts, every mapped
+  // subscription validates itself from its own receipts.
+  const emails = [
+    mail("auto-confirm@amazon.in", "Your Amazon Prime membership has renewed", 10),
+    mail("no-reply@amazon.in", "Your Prime subscription invoice", 5),
+  ];
+  const result = analyze(primeFixture(), ASOF, { emails });
+  const prime = verdictFor(result, "amazon-prime");
+
+  assert.strictEqual(prime.verdict, "likely-unused", "billing mail is not usage");
+  assert.strictEqual(prime.evidence.emailMatchesInWindow.length, 0);
+  assert.strictEqual(prime.zombieScore, 2093, "the full chain, exactly as without email");
+});
+
+check("EMAIL: the sender must match, not just the subject", () => {
+  // A marketing blast from anyone else that happens to contain the word.
+  const emails = [mail("deals@randomshop.example", "Your order has shipped", 10)];
+  const result = analyze(primeFixture(), ASOF, { emails });
+  assert.strictEqual(verdictFor(result, "amazon-prime").verdict, "likely-unused");
+});
+
+check("EMAIL: no email footprint means no email can ever be evidence", () => {
+  // Netflix does not write to you when you watch something. Anything claiming
+  // otherwise is a coincidence, and must not turn an honest "can't tell" into a
+  // confident "used".
+  const emails = [
+    mail("info@netflix.com", "Continue watching your show", 5),
+    mail("info@netflix.com", "New arrivals this week", 3),
+  ];
+  const result = analyze(netflixFixture(), ASOF, { emails });
+  const netflix = verdictFor(result, "netflix");
+  assert.strictEqual(netflix.verdict, "unknown");
+  assert.strictEqual(netflix.confidence, "low");
+  assert.strictEqual(netflix.evidence.emailMatchesInWindow.length, 0);
+});
+
+check("EMAIL: usage bounds the score even from outside the window", () => {
+  // The Zomato Gold rule, arrived at by email instead of by transaction: the
+  // verdict is unused because nothing is inside the window, but the score must
+  // still stop at the last order rather than counting the whole chain.
+  const txns = [10, 40, 70, 100, 130].map((d) => t("AMAZON PRIME", d, 299));
+  const emails = [mail("ship-confirm@amazon.in", "Your order has shipped", 115)];
+  const result = analyze(txns, ASOF, { emails });
+  const prime = verdictFor(result, "amazon-prime");
+
+  assert.strictEqual(prime.verdict, "likely-unused", "115 days is outside the 90-day window");
+  assert.strictEqual(prime.evidence.lastEmailUsage?.date, ago(115));
+  assert.strictEqual(prime.zombieScore, 1196, "the 4 charges since, not all 5");
+  assert.notStrictEqual(prime.zombieScore, 1495, "counting the whole chain would be wrong");
+});
+
+check("EMAIL: the later of the two sources bounds the score", () => {
+  // A transaction 150 days ago and an email 100 days ago -- BOTH outside the
+  // 90-day window, so the verdict is unused and the score is what is under
+  // test. The email is the newer of the two, so the score must stop there.
+  // Taking the transaction date instead would bill the user for two months we
+  // hold proof they were using it.
+  const txns = [10, 40, 70, 100, 130, 160].map((d) => t("AMAZON PRIME", d, 299));
+  const older = t("AMAZON SHOPPING", 150, 1250);
+  const emails = [mail("ship-confirm@amazon.in", "Your order has shipped", 100)];
+  const result = analyze([...txns, older], ASOF, { emails });
+  const prime = verdictFor(result, "amazon-prime");
+
+  assert.strictEqual(prime.verdict, "likely-unused", "neither source is inside the window");
+  assert.strictEqual(prime.evidence.lastUsage?.date, ago(150), "transaction evidence");
+  assert.strictEqual(prime.evidence.lastEmailUsage?.date, ago(100), "email evidence, newer");
+  assert.strictEqual(prime.evidence.daysSinceLastUsage, 100, "the later of the two");
+  assert.strictEqual(prime.zombieScore, 897, "the 3 charges after day 100");
+  assert.notStrictEqual(prime.zombieScore, 1495, "stopping at the transaction would overcharge");
+});
+
+check("EMAIL: the asOf horizon hides mail that has not arrived yet", () => {
+  const emails = [mail("ship-confirm@amazon.in", "Your order has shipped", -10)];
+  const result = analyze(primeFixture(), ASOF, { emails });
+  const prime = verdictFor(result, "amazon-prime");
+  assert.strictEqual(prime.verdict, "likely-unused", "a future email must be invisible");
+  assert.strictEqual(prime.evidence.emailMatchesInWindow.length, 0);
+});
+
+check("EMAIL: no emails leaves every seeded figure untouched", () => {
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  assert.deepStrictEqual(
+    analyze(txns, ASOF, { emails: [] }),
+    analyze(txns, ASOF),
+    "the option must be inert when unused",
+  );
+});
+
+check("EMAIL: no mapped service treats another's billing mail as its own usage", () => {
+  // All-pairs. Every billing-shaped subject, against every entry that has an
+  // email footprint, from that entry's own sender -- the hardest case, since
+  // the sender check passes and only the billing guard stands between it and a
+  // "used" verdict.
+  const billingSubjects = [
+    "Your membership has renewed",
+    "Subscription invoice for August",
+    "Your plan renews tomorrow",
+    "Billing update",
+  ];
+  for (const entry of MERCHANTS) {
+    if (!entry.emailUsage) continue;
+    for (const sender of entry.emailUsage.senders) {
+      for (const subject of billingSubjects) {
+        assert.ok(
+          !isEmailUsageEvidence({ from: `no-reply@${sender}`, subject }, entry),
+          `"${subject}" from ${sender} must not be usage evidence for ${entry.key}`,
+        );
+      }
+    }
+  }
+});
+
+check("EMAIL: the trap is real -- the positive case genuinely fires", () => {
+  // Proof the check above is not vacuous: the same senders DO produce evidence
+  // when the subject describes something the user did.
+  let fired = 0;
+  for (const entry of MERCHANTS) {
+    if (!entry.emailUsage) continue;
+    const sender = entry.emailUsage.senders[0];
+    for (const pattern of entry.emailUsage.subjectPatterns) {
+      if (isEmailUsageEvidence({ from: `no-reply@${sender}`, subject: `Your ${pattern} today` }, entry)) {
+        fired++;
+      }
+    }
+  }
+  assert.ok(fired > 0, "if nothing ever matches, the billing check proves nothing");
 });
 
 check("DET: rewinding asOf gives the historically correct answer", () => {

@@ -17,6 +17,7 @@
  */
 import { addDaysIso, daysBetween, round2 } from "./dates";
 import {
+  isEmailUsageEvidence,
   isSubscriptionCharge,
   lookupByKey,
   matchesPattern,
@@ -35,6 +36,7 @@ import type {
   Cancellation,
   ChargeRef,
   Confidence,
+  EmailEvent,
   EvidenceChain,
   Subscription,
   TransactionLike,
@@ -51,6 +53,15 @@ export interface AnalyzeOptions {
   answers?: readonly UserAnswer[];
   /** Subscriptions the user has declared cancelled. */
   cancellations?: readonly Cancellation[];
+  /**
+   * Layer 2b. Message headers synced from Gmail, which extend usage detection
+   * to spending this app never sees -- a Swiggy order paid by card, an Amazon
+   * purchase on a saved wallet. Without them such usage looks like silence, and
+   * silence is what this engine calls a zombie. A false zombie is the worst
+   * failure this product has, so this is a correctness feature before it is a
+   * coverage one.
+   */
+  emails?: readonly EmailEvent[];
   /** Tests only. Production always uses LOOKBACK_DAYS. */
   lookbackDays?: number;
 }
@@ -145,11 +156,13 @@ export function analyze(
     // the whole map. The only charges this narrowing lets back in are unmapped
     // recurring ones -- and for those, counting them is usually right: a
     // monthly "AMAZON PANTRY" charge genuinely is Amazon usage.
-    const base = judge(sub, txns, new Set(sub.chargeIds), {
-      asOf: asOfDate,
-      windowStart,
-      lookbackDays,
-    });
+    const base = judge(
+      sub,
+      txns,
+      new Set(sub.chargeIds),
+      { asOf: asOfDate, windowStart, lookbackDays },
+      opts?.emails ?? [],
+    );
     const answer = answersByKey.get(sub.merchantKey);
     const answered = answer ? applyUserAnswer(base, answer) : base;
     const cancellation = cancellationsByKey.get(sub.merchantKey);
@@ -224,6 +237,7 @@ function judge(
   txns: readonly TransactionLike[],
   excludedIds: ReadonlySet<string>,
   win: Window,
+  emails: readonly EmailEvent[],
 ): UsageVerdict {
   const entry = lookupByKey(sub.merchantKey);
 
@@ -271,6 +285,30 @@ function judge(
   const matchesInWindow = usage.filter((u) => u.date >= win.windowStart);
   const lastUsage = usage.length > 0 ? usage[usage.length - 1] : null;
 
+  // --- Layer 2b: the same question, asked of the inbox --------------------
+  //
+  // Kept as its own list rather than merged into `usage`, because an email has
+  // no amount and pretending otherwise would put a fabricated rupee figure into
+  // a structure whose entire job is that every figure traces to a real one.
+  //
+  // The horizon applies here too: a message dated after `asOf` must be
+  // invisible, or paging back through the months would show usage that had not
+  // happened yet.
+  const emailUsage = emails
+    .filter((e) => e.date <= win.asOf && isEmailUsageEvidence(e, entry))
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.id < b.id ? -1 : 1));
+  const emailMatchesInWindow = emailUsage.filter((e) => e.date >= win.windowStart);
+  const lastEmailUsage = emailUsage.length > 0 ? emailUsage[emailUsage.length - 1] : null;
+
+  // Either source proves use, and the score is bounded by whichever came last.
+  // Taking only the transaction date would keep charging a subscription as
+  // wasted for orders it can see proof of in the inbox.
+  const usedInWindow = matchesInWindow.length + emailMatchesInWindow.length > 0;
+  const lastUsageDate = [lastUsage?.date, lastEmailUsage?.date]
+    .filter((d): d is string => typeof d === "string")
+    .sort()
+    .pop() ?? null;
+
   const evidence: EvidenceChain = {
     footprint: "transaction",
     usageLabel: entry.usageLabel,
@@ -280,7 +318,9 @@ function judge(
     windowEnd: win.asOf,
     matchesInWindow,
     lastUsage,
-    daysSinceLastUsage: lastUsage ? daysBetween(lastUsage.date, win.asOf) : null,
+    emailMatchesInWindow,
+    lastEmailUsage,
+    daysSinceLastUsage: lastUsageDate ? daysBetween(lastUsageDate, win.asOf) : null,
     charges: sub.charges,
     chargeCount: sub.occurrences,
     totalPaid: sub.totalPaid,
@@ -290,8 +330,21 @@ function judge(
     daysSinceLastCharge: sub.daysSinceLastCharge,
   };
 
-  if (matchesInWindow.length > 0) {
-    const mostRecent = matchesInWindow[matchesInWindow.length - 1];
+  if (usedInWindow) {
+    const mostRecentDate = [
+      matchesInWindow[matchesInWindow.length - 1]?.date,
+      emailMatchesInWindow[emailMatchesInWindow.length - 1]?.date,
+    ]
+      .filter((d): d is string => typeof d === "string")
+      .sort()
+      .pop()!;
+    const found = [
+      matchesInWindow.length > 0 && `${matchesInWindow.length} ${entry.usageLabel}`,
+      emailMatchesInWindow.length > 0 &&
+        `${emailMatchesInWindow.length} confirmation ${emailMatchesInWindow.length === 1 ? "email" : "emails"}`,
+    ]
+      .filter(Boolean)
+      .join(" and ");
     return {
       merchantKey: sub.merchantKey,
       merchant: sub.merchant,
@@ -309,15 +362,15 @@ function judge(
       wastedCharges: [],
       potentialWaste: 0,
       question: null,
-      reason: `${matchesInWindow.length} ${entry.usageLabel} in the last ${win.lookbackDays} days, most recently ${describeAge(daysBetween(mostRecent.date, win.asOf))}.`,
+      reason: `${found} in the last ${win.lookbackDays} days, most recently ${describeAge(daysBetween(mostRecentDate, win.asOf))}.`,
       evidence,
     };
   }
 
-  const wastedCharges: ChargeRef[] = lastUsage
+  const wastedCharges: ChargeRef[] = lastUsageDate
     ? // Strict >. A charge dated the same day as a usage event is not waste --
       // you used the service that day. Worth exactly one billing cycle on stage.
-      sub.charges.filter((c) => c.date > lastUsage.date)
+      sub.charges.filter((c) => c.date > lastUsageDate)
     : sub.charges;
 
   return {
@@ -332,9 +385,9 @@ function judge(
     wastedCharges,
     potentialWaste: 0,
     question: null,
-    reason: lastUsage
-      ? `Last of your ${entry.usageLabel} was ${describeAge(daysBetween(lastUsage.date, win.asOf))}, outside the ${win.lookbackDays}-day window. ${wastedCharges.length} ${plural(wastedCharges.length, "charge")} billed since.`
-      : `No ${entry.usageLabel} anywhere in your history. All ${sub.occurrences} ${plural(sub.occurrences, "charge")} are unmatched.`,
+    reason: lastUsageDate
+      ? `Last sign of use was ${describeAge(daysBetween(lastUsageDate, win.asOf))}, outside the ${win.lookbackDays}-day window. ${wastedCharges.length} ${plural(wastedCharges.length, "charge")} billed since.`
+      : `No ${entry.usageLabel} anywhere in your history${emails.length > 0 ? ", and nothing in your inbox either" : ""}. All ${sub.occurrences} ${plural(sub.occurrences, "charge")} are unmatched.`,
     evidence,
   };
 }
@@ -374,6 +427,8 @@ function gapVerdict(
       windowEnd: win.asOf,
       matchesInWindow: [],
       lastUsage: null,
+      emailMatchesInWindow: [],
+      lastEmailUsage: null,
       daysSinceLastUsage: null,
       charges: sub.charges,
       chargeCount: sub.occurrences,

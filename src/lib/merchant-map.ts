@@ -39,6 +39,28 @@ interface MerchantBase {
    * stage is worse than no link at all.
    */
   cancelUrl?: string;
+  /**
+   * Layer 2b: what a transactional email from this service looks like when it
+   * proves USE.
+   *
+   * Both halves must match. The sender establishes it really is them; the
+   * subject establishes it is a confirmation of something you did, not an
+   * announcement of something they charged you. Order confirmations, dispatch
+   * notices and trip receipts are only ever sent because the user acted --
+   * which is exactly the property Layer 2 needs, and one that marketing mail
+   * conspicuously lacks.
+   *
+   * Absent means this service has no observable email footprint, and no email
+   * can ever be evidence for it. Netflix does not write to you when you watch
+   * something, so leaving this off Netflix is the honest answer, not an
+   * oversight.
+   */
+  emailUsage?: {
+    /** Substrings matched against the raw From header, lowercased. */
+    senders: readonly [string, ...string[]];
+    /** Contiguous token sequences in the subject. */
+    subjectPatterns: readonly [string, ...string[]];
+  };
 }
 
 /** A service whose genuine use leaves a separate financial footprint. */
@@ -68,6 +90,33 @@ export interface OpaqueMerchant extends MerchantBase {
 }
 
 export type MerchantEntry = TrackedMerchant | OpaqueMerchant;
+
+/**
+ * Subject signatures that mean BILLING, checked before anything else and across
+ * the whole map. The self-validation trap, in the email domain.
+ *
+ * Amazon writes to you when your order ships, and Amazon writes to you when
+ * your Prime membership renews. Both are from Amazon, both mention Prime, and
+ * only one is evidence that you used anything. Without this list the renewal
+ * notice for a subscription becomes proof that the subscription is in use --
+ * the same silent, self-confirming failure that `isSubscriptionCharge` exists
+ * to prevent for charges.
+ *
+ * Deliberately NOT in this list: "receipt" and "payment". Uber's "Your Thursday
+ * trip receipt" and Ola's ride receipts are usage, and blocking them here would
+ * quietly delete the strongest email signal two services have.
+ */
+export const EMAIL_BILLING_PATTERNS: readonly string[] = [
+  "invoice",
+  "membership",
+  "subscription",
+  "renewed",
+  "renewal",
+  "auto renew",
+  "autorenew",
+  "your plan",
+  "billing",
+];
 
 /**
  * Payment-rail prefixes that appear in front of the real payee on UPI and card
@@ -141,6 +190,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["amazon prime", "amazonprime", "prime video"],
     usagePatterns: ["amazon", "amzn"],
     usageLabel: "Amazon orders",
+    emailUsage: {
+      senders: ["amazon.in", "amazon.com"],
+      subjectPatterns: ["has shipped", "out for delivery", "has been delivered", "order placed"],
+    },
     cancelHint: "Amazon → Account → Prime membership → End membership",
     cancelUrl: "https://www.amazon.in/gp/primecentral",
   },
@@ -151,6 +204,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["swiggy one", "swiggyone", "swiggy super"],
     usagePatterns: ["swiggy", "instamart", "bundl"],
     usageLabel: "Swiggy orders",
+    emailUsage: {
+      senders: ["swiggy.in", "swiggy.com"],
+      subjectPatterns: ["order", "delivered", "on the way"],
+    },
     cancelHint: "Swiggy app → Account → Swiggy One → Manage plan. Autopay also cancels from your UPI app.",
   },
   {
@@ -160,6 +217,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["zomato gold", "zomatogold", "zomato pro"],
     usagePatterns: ["zomato"],
     usageLabel: "Zomato orders",
+    emailUsage: {
+      senders: ["zomato.com"],
+      subjectPatterns: ["order", "delivered", "on the way"],
+    },
     cancelHint: "Zomato app → Profile → Gold → Manage. Stop the UPI autopay mandate as well.",
   },
   {
@@ -170,6 +231,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     // kiranakart is Zepto's legal payee and bills for orders too -- usage only.
     usagePatterns: ["zepto", "kiranakart"],
     usageLabel: "Zepto orders",
+    emailUsage: {
+      senders: ["zepto.co.in", "zeptonow.com"],
+      subjectPatterns: ["order", "delivered"],
+    },
     cancelHint: "Zepto app → Profile → Zepto Pass → Manage subscription",
   },
   {
@@ -179,6 +244,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["bbstar", "bb star", "bigbasket star"],
     usagePatterns: ["bigbasket", "bbdaily", "bb daily", "bbnow", "supermarket grocery"],
     usageLabel: "BigBasket orders",
+    emailUsage: {
+      senders: ["bigbasket.com"],
+      subjectPatterns: ["order", "delivered", "out for delivery"],
+    },
     cancelHint: "BigBasket app → Account → bbstar membership → Manage",
   },
   {
@@ -188,6 +257,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["uber one", "uberone"],
     usagePatterns: ["uber"],
     usageLabel: "Uber rides",
+    emailUsage: {
+      senders: ["uber.com"],
+      subjectPatterns: ["trip with", "ride with", "trip receipt"],
+    },
     cancelHint: "Uber app → Account → Uber One → Manage membership → End membership",
   },
   {
@@ -197,6 +270,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["ola select", "ola pass", "olaselect"],
     usagePatterns: ["ola", "ani technologies"],
     usageLabel: "Ola rides",
+    emailUsage: {
+      senders: ["olacabs.com", "olamoney.com"],
+      subjectPatterns: ["ride receipt", "trip receipt", "your ride"],
+    },
     cancelHint: "Ola app → Menu → Ola Select → Manage subscription",
   },
   {
@@ -206,6 +283,10 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     subscriptionPatterns: ["cult pass", "cultfit elite", "cult fit elite"],
     usagePatterns: ["cultfit", "cult fit", "curefit", "cure fit"],
     usageLabel: "Cult.fit bookings",
+    emailUsage: {
+      senders: ["cult.fit", "curefit.com"],
+      subjectPatterns: ["class booked", "booking confirmed", "session booked", "see you at"],
+    },
     cancelHint: "Cult.fit app → Profile → Memberships → Cancel or pause",
   },
 
@@ -598,6 +679,46 @@ export function merchantKeyOf(merchant: string): string {
 }
 
 /** Canonical display name, falling back to the raw payee for unmapped merchants. */
+/**
+ * Is this email evidence that `entry` is being used?
+ *
+ * THE ORDER OF THESE STEPS IS THE CONTRACT, exactly as it is for transactions
+ * in `isUsageEvidence`. The failure mode is identical and just as quiet: a
+ * subscription's own renewal notice becomes proof that the subscription is
+ * being used, and every verdict comes back "used" with no error anywhere.
+ */
+export function isEmailUsageEvidence(
+  email: { from: string; subject: string },
+  entry: MerchantEntry,
+): boolean {
+  // 1. Does this service leave any email footprint at all? Netflix does not
+  //    write to you when you watch something, so nothing can be evidence for
+  //    it and no amount of matching should invent some.
+  if (!entry.emailUsage) return false;
+
+  const subjectTokens = tokenize(email.subject);
+
+  // 2. Braces: does this look like ANY subscription's billing mail? Checked
+  //    globally and before the positive test, so "Your Prime membership has
+  //    renewed" is disqualified as billing before it ever gets the chance to
+  //    match Amazon's sender and be counted as an order.
+  if (EMAIL_BILLING_PATTERNS.some((p) => matchesPattern(subjectTokens, p))) {
+    return false;
+  }
+
+  // 3. Is it really from them? A subject line alone is anyone's to write.
+  const from = email.from.toLowerCase();
+  if (!entry.emailUsage.senders.some((sender) => from.includes(sender))) return false;
+
+  // 4. Finally: does the subject describe something the USER did?
+  return entry.emailUsage.subjectPatterns.some((p) => matchesPattern(subjectTokens, p));
+}
+
+/** Every entry this email is usage evidence for. Normally one, sometimes none. */
+export function emailUsageMatches(email: { from: string; subject: string }): MerchantEntry[] {
+  return MERCHANTS.filter((entry) => isEmailUsageEvidence(email, entry));
+}
+
 export function displayNameOf(merchant: string): string {
   return lookupSubscription(merchant)?.displayName ?? merchant.trim();
 }

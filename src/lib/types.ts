@@ -40,6 +40,31 @@ export interface StoredTransaction extends TransactionLike {
 export type TransactionSource = "photo" | "email" | "seed" | "manual";
 
 /**
+ * A message header set, as Layer 2b sees it.
+ *
+ * Deliberately raw and un-attributed: no merchantKey. Which service an email is
+ * evidence for is decided at analyse time by the same matching rules that judge
+ * a transaction's payee, so widening the merchant map takes effect on mail that
+ * was synced months ago. Baking the answer in at sync time would freeze every
+ * stored message against the map as it stood that day.
+ *
+ * Three headers is the whole payload, because the `gmail.metadata` scope makes
+ * message bodies unreachable. That is a feature: an order confirmation
+ * announces itself in the subject line, and nothing here can leak a body we
+ * were never granted.
+ */
+export interface EmailEvent {
+  /** Gmail message id. The natural idempotency key -- resyncing cannot double up. */
+  id: string;
+  /** Raw From header. */
+  from: string;
+  /** Raw Subject header. */
+  subject: string;
+  /** YYYY-MM-DD, from the Date header. */
+  date: string;
+}
+
+/**
  * One charge, carried by value rather than by id alone so the UI can render a
  * complete evidence chain without re-joining against the transaction list.
  */
@@ -130,6 +155,15 @@ export interface EvidenceChain {
    * the two silently doubles the money figure. See correlate.ts.
    */
   lastUsage: ChargeRef | null;
+  /**
+   * Layer 2b, kept separate from `matchesInWindow` for the same reason that
+   * one is kept separate from `lastUsage`: they are different evidence with
+   * different properties, and an email has no amount. Merging them would mean
+   * inventing a rupee figure for a message.
+   */
+  emailMatchesInWindow: EmailEvent[];
+  lastEmailUsage: EmailEvent | null;
+  /** Days since the most recent usage from EITHER source. Bounds the score. */
   daysSinceLastUsage: number | null;
   /** The full charge chain, ascending. */
   charges: ChargeRef[];
