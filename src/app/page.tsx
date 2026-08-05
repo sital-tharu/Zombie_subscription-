@@ -235,8 +235,11 @@ export default async function Home({
         <EmptyState />
       ) : (
         <>
-          {/* Month navigator */}
-          <div className="mt-8 flex flex-wrap items-end justify-between gap-4">
+          {/* Month navigator. No top margin: it is the first thing under the
+              header now, and main's padding is the only gap that should exist.
+              The mt-8 that used to be here was clearing the brand row that has
+              since moved into the header. */}
+          <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="font-mono text-xs tracking-widest text-[var(--color-dim)]">MONTH</p>
               <div className="mt-0.5 flex items-center gap-1">
@@ -797,7 +800,7 @@ function StoreDown({ error, mode }: { error: unknown; mode: string }) {
 
 function EmptyState() {
   return (
-    <div className="mt-8 rounded-xl border border-dashed border-[var(--color-edge)] p-10 text-center">
+    <div className="rounded-xl border border-dashed border-[var(--color-edge)] p-10 text-center">
       <p className="text-[var(--color-muted)]">No transactions yet.</p>
       <p className="mt-2 text-[13px] text-[var(--color-dim)]">
         Run{" "}
