@@ -38,7 +38,12 @@ import {
   templatePlan,
 } from "../src/lib/proposal";
 import { buildSeedTransactions, EXPECTED_SEED_OUTCOME } from "../src/lib/seed-data";
-import { detectSubscriptions, monthlyTotal } from "../src/lib/subscriptions";
+import {
+  detectCandidates,
+  detectSubscriptions,
+  ENDED_AFTER_DAYS,
+  monthlyTotal,
+} from "../src/lib/subscriptions";
 import type { TransactionLike, UsageVerdict } from "../src/lib/types";
 
 const ASOF = "2026-08-04";
@@ -259,7 +264,45 @@ check("L1: monthlyTotal sums the detected subscriptions", () => {
 
 check("MAP: validateMerchantMap reports no problems", () => {
   assert.deepStrictEqual(validateMerchantMap(), []);
-  assert.strictEqual(MERCHANTS.length, 21);
+  assert.strictEqual(MERCHANTS.length, 32);
+});
+
+check("MAP: google photos does not shadow google one, or vice versa", () => {
+  // lookupSubscription takes the LONGEST match, so two patterns sharing a
+  // leading token are the classic way to break this map silently.
+  assert.strictEqual(merchantKeyOf("GOOGLE PHOTOS"), "google-photos");
+  assert.strictEqual(merchantKeyOf("GOOGLE ONE"), "google-one");
+  assert.strictEqual(merchantKeyOf("Google Photos*IN"), "google-photos");
+});
+
+check("MAP: an AI subscription reaches the gap handler, not a guess", () => {
+  // The purest case for Layer 2c: nothing in a bank statement can distinguish
+  // daily use from total neglect, so the only honest move is to ask.
+  const result = analyze(
+    [65, 35, 5].map((d) => t("CHATGPT", d, 1950)),
+    ASOF,
+  );
+  const chatgpt = verdictFor(result, "openai-chatgpt");
+  assert.strictEqual(chatgpt.verdict, "unknown");
+  assert.strictEqual(chatgpt.confidence, "low", "mapped, so better than no signal");
+  assert.strictEqual(chatgpt.zombieScore, 0, "no evidence means no claim");
+  assert.ok(chatgpt.question?.includes("ChatGPT"));
+  assert.strictEqual(result.annualSavings, 0, "an unanswered unknown promises nothing");
+});
+
+check("MAP: a bare AIRTEL payee is unmapped, and honestly so", () => {
+  // The reported case. Matching is on contiguous token sequences, so "AIRTEL"
+  // cannot reach the airtel-xstream entry, which needs the adjacent pair. It
+  // therefore falls to the unmapped branch -- confidence "none" and a generic
+  // question -- rather than being silently attributed to Xstream Play.
+  assert.strictEqual(merchantKeyOf("AIRTEL"), "airtel");
+  assert.strictEqual(merchantKeyOf("ONE MONTH AIRTEL RECHARGE"), "one-month-airtel-recharge");
+  assert.strictEqual(merchantKeyOf("AIRTEL XSTREAM PLAY"), "airtel-xstream");
+
+  const result = analyze([65, 35, 5].map((d) => t("AIRTEL", d, 299)), ASOF);
+  const airtel = verdictFor(result, "airtel");
+  assert.strictEqual(airtel.verdict, "unknown");
+  assert.strictEqual(airtel.confidence, "none", "unmapped is a weaker claim than opaque");
 });
 
 check("MAP: every mapped service says how to cancel it", () => {
@@ -730,6 +773,246 @@ check("SPAN: a short history shrinks the window but not the reported span", () =
   assert.strictEqual(result.historySpanDays, 62);
   assert.strictEqual(result.lookbackDays, 62, "the window cannot exceed the history");
   assert.strictEqual(verdictFor(result, "amazon-prime").confidence, "medium");
+});
+
+// ---------------------------------------------------------------------------
+// MONTH -- the orientation figures behind the monthly screen.
+//
+// Neither of these decides a verdict, but both are rendered as money or as a
+// date next to money, so both are pinned. monthlyRunRate in particular is the
+// first number a user reads, and it must reconcile against the same charge
+// chains every other figure on the page comes from.
+// ---------------------------------------------------------------------------
+
+check("MONTH: the run-rate is the sum of every subscription's monthly amount", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  assert.strictEqual(result.monthlyRunRate, 1746, "299 + 499 + 200 + 649 + 99");
+  assert.strictEqual(result.monthlyRunRate, monthlyTotal(result.subscriptions));
+});
+
+check("MONTH: unknowns count toward the run-rate -- you pay them regardless", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  const unknowns = result.verdicts.filter((v) => v.verdict === "unknown");
+  assert.strictEqual(unknowns.length, 2, "Netflix and KUKU FM");
+  const unknownCost = unknowns.reduce((s, v) => s + v.monthlyAmount, 0);
+  assert.strictEqual(unknownCost, 748, "649 + 99");
+  // The honesty rule is that unknowns contribute nothing to WASTE. It does not
+  // follow that they contribute nothing to the BILL -- excluding them here
+  // would understate what the user pays by exactly the services they are least
+  // sure about, which is the opposite of the point.
+  assert.ok(
+    result.monthlyRunRate > unknownCost,
+    "the run-rate must include the services we decline to judge",
+  );
+  assert.strictEqual(result.annualSavings, 5988, "but annualSavings still excludes them");
+});
+
+check("MONTH: nextCharge projects the last charge forward by the cadence", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  for (const verdict of result.verdicts) {
+    const sub = result.subscriptions.find((s) => s.merchantKey === verdict.merchantKey);
+    assert.ok(sub, `no subscription behind ${verdict.merchantKey}`);
+    assert.strictEqual(
+      verdict.nextCharge,
+      addDaysIso(sub.lastDate, sub.cadenceDays),
+      `${verdict.merchantKey} nextCharge must be lastDate + cadenceDays`,
+    );
+    assert.ok(verdict.nextCharge > sub.lastDate, "a projection, always forward");
+  }
+});
+
+check("MONTH: every verdict carries a next charge, including the unjudgeable ones", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  // The monthly row renders this for every subscription. A gap verdict that
+  // omitted it would render "next undefined" for precisely the two services the
+  // honest-refusal demo beat puts on screen.
+  assert.strictEqual(result.verdicts.length, 5);
+  for (const verdict of result.verdicts) {
+    assert.match(
+      verdict.nextCharge,
+      /^\d{4}-\d{2}-\d{2}$/,
+      `${verdict.merchantKey} (${verdict.verdict}) has no usable nextCharge`,
+    );
+  }
+});
+
+check("MONTH: a user answer does not disturb the billing facts", () => {
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  const before = verdictFor(analyze(txns, ASOF), "netflix");
+  const after = verdictFor(
+    analyze(txns, ASOF, {
+      answers: [{ merchantKey: "netflix", used: false, answeredAt: ASOF }],
+    }),
+    "netflix",
+  );
+  assert.strictEqual(after.verdict, "likely-unused", "the answer did land");
+  assert.strictEqual(after.nextCharge, before.nextCharge, "billing is unaffected");
+  assert.strictEqual(after.monthlyAmount, before.monthlyAmount);
+});
+
+// ---------------------------------------------------------------------------
+// ENDED -- a subscription that stopped billing.
+//
+// Detection walks back from the LATEST charge and does not care that the latest
+// charge was in March, so a cancelled subscription still forms a valid chain.
+// Left alone it is flagged unused and promises a full year of savings on money
+// the user already stopped spending. These checks pin the split: the waste it
+// caused still counts, the savings it could still deliver do not.
+// ---------------------------------------------------------------------------
+
+check("ENDED: a chain that stopped billing is marked ended", () => {
+  // Four monthly charges, the last of them 60 days before asOf. No Amazon
+  // purchases anywhere, so the verdict is a confident likely-unused.
+  const result = analyze(
+    [150, 120, 90, 60].map((d) => t("AMAZON PRIME", d, 299)),
+    ASOF,
+  );
+  const prime = verdictFor(result, "amazon-prime");
+  assert.strictEqual(prime.status, "ended");
+  assert.strictEqual(prime.verdict, "likely-unused");
+});
+
+check("ENDED: the boundary is exclusive -- exactly 40 days is still active", () => {
+  assert.strictEqual(ENDED_AFTER_DAYS, 40, "30-day cadence plus two 5-day bands");
+
+  const atBoundary = analyze(
+    [130, 100, 70, ENDED_AFTER_DAYS].map((d) => t("AMAZON PRIME", d, 299)),
+    ASOF,
+  );
+  assert.strictEqual(verdictFor(atBoundary, "amazon-prime").status, "active");
+
+  const oneDayLater = analyze(
+    [131, 101, 71, ENDED_AFTER_DAYS + 1].map((d) => t("AMAZON PRIME", d, 299)),
+    ASOF,
+  );
+  assert.strictEqual(verdictFor(oneDayLater, "amazon-prime").status, "ended");
+});
+
+check("ENDED: the waste still counts, the savings do not", () => {
+  const result = analyze(
+    [150, 120, 90, 60].map((d) => t("AMAZON PRIME", d, 299)),
+    ASOF,
+  );
+  const prime = verdictFor(result, "amazon-prime");
+
+  // The money really did leave the account before the cancellation.
+  assert.strictEqual(prime.zombieScore, 1196, "4 charges of 299");
+  assert.strictEqual(result.totalWasted, 1196);
+
+  // But it cannot be cancelled twice, so there is nothing left to save.
+  assert.strictEqual(result.annualSavings, 0, "no future savings on a dead chain");
+  assert.strictEqual(result.monthlyRunRate, 0, "you are not paying this any more");
+});
+
+check("ENDED: an active chain of the same shape still promises savings", () => {
+  // Same four charges, shifted so the last one lands inside the window. This is
+  // the control: it proves the check above is measuring endedness and not some
+  // other property of the fixture.
+  const result = analyze(
+    [100, 70, 40, 10].map((d) => t("AMAZON PRIME", d, 299)),
+    ASOF,
+  );
+  const prime = verdictFor(result, "amazon-prime");
+  assert.strictEqual(prime.status, "active");
+  assert.strictEqual(prime.zombieScore, 1196, "identical waste");
+  assert.strictEqual(result.annualSavings, 3588, "12 x 299");
+  assert.strictEqual(result.monthlyRunRate, 299);
+});
+
+check("ENDED: every seeded subscription is active, so the demo is unaffected", () => {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  for (const verdict of result.verdicts) {
+    assert.strictEqual(
+      verdict.status,
+      "active",
+      `${verdict.merchantKey} must stay active or the headline figures move`,
+    );
+  }
+  // Belt and braces: the run-rate equality only holds while nothing has ended.
+  assert.strictEqual(result.monthlyRunRate, monthlyTotal(result.subscriptions));
+});
+
+// ---------------------------------------------------------------------------
+// CAND -- merchants that charged you but did not qualify.
+//
+// The product was silently swallowing uploads: a one-off recharge is stored
+// correctly and then appears nowhere, because every surface is built from
+// detected chains. These are the rows that make it visible.
+// ---------------------------------------------------------------------------
+
+check("CAND: a single charge is a candidate needing two more", () => {
+  const candidates = detectCandidates([t("AIRTEL", 5, 299)], ASOF);
+  assert.strictEqual(candidates.length, 1);
+  assert.strictEqual(candidates[0].merchantKey, "airtel");
+  assert.strictEqual(candidates[0].occurrences, 1);
+  assert.strictEqual(candidates[0].needs, 2);
+  assert.strictEqual(candidates[0].latestAmount, 299);
+  assert.strictEqual(candidates[0].expectedNext, null, "one charge sets no cadence");
+});
+
+check("CAND: two matching charges project the third", () => {
+  const candidates = detectCandidates(
+    [t("BLINKIT", 35, 450), t("BLINKIT", 5, 450)],
+    ASOF,
+  );
+  assert.strictEqual(candidates.length, 1);
+  assert.strictEqual(candidates[0].occurrences, 2);
+  assert.strictEqual(candidates[0].needs, 1);
+  assert.strictEqual(
+    candidates[0].expectedNext,
+    addDaysIso(ago(5), 30),
+    "last charge plus the observed gap",
+  );
+});
+
+check("CAND: a pair that would not chain gets no projected date", () => {
+  // 65 days apart -- a third charge at this spacing would break the cadence
+  // rule, so promising a date would be promising something untrue.
+  const wrongCadence = detectCandidates(
+    [t("CROMA", 70, 1000), t("CROMA", 5, 1000)],
+    ASOF,
+  );
+  assert.strictEqual(wrongCadence[0].expectedNext, null);
+
+  // Right cadence, but the amount moved more than the tolerance allows.
+  const wrongAmount = detectCandidates(
+    [t("IKEA", 35, 500), t("IKEA", 5, 900)],
+    ASOF,
+  );
+  assert.strictEqual(wrongAmount[0].occurrences, 2);
+  assert.strictEqual(wrongAmount[0].expectedNext, null);
+});
+
+check("CAND: candidates and subscriptions never overlap", () => {
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  const subKeys = new Set(detectSubscriptions(txns, ASOF).map((s) => s.merchantKey));
+  const candidates = detectCandidates(txns, ASOF);
+
+  assert.ok(candidates.length > 0, "the seed's background noise must produce some");
+  for (const candidate of candidates) {
+    assert.ok(
+      !subKeys.has(candidate.merchantKey),
+      `${candidate.merchantKey} cannot be both a subscription and a candidate`,
+    );
+    assert.ok(
+      candidate.occurrences < 3,
+      `${candidate.merchantKey} has ${candidate.occurrences} charges -- three would make it a subscription`,
+    );
+  }
+  // None of the five planted subscriptions may leak into the watchlist.
+  for (const expected of EXPECTED_SEED_OUTCOME.verdicts) {
+    assert.ok(!candidates.some((c) => c.merchantKey === expected.merchantKey));
+  }
+});
+
+check("CAND: three non-chaining charges are noise, not a near miss", () => {
+  // Three Swiggy orders at wildly different amounts. This is shopping, not a
+  // subscription in the making, and listing it would bury the signal.
+  const candidates = detectCandidates(
+    [t("SWIGGY", 40, 240), t("SWIGGY", 20, 700), t("SWIGGY", 3, 415)],
+    ASOF,
+  );
+  assert.deepStrictEqual(candidates, []);
 });
 
 check("DET: rewinding asOf gives the historically correct answer", () => {

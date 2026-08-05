@@ -74,7 +74,40 @@ export interface Subscription {
   spanDays: number;
 }
 
+/**
+ * A merchant that charged you but did not qualify as a subscription: one or two
+ * occurrences, where three are required. Carries no verdict, no confidence and
+ * no waste figure -- nothing is being claimed about it, which is the point.
+ * It exists so an uploaded transaction is never invisible.
+ */
+export interface Candidate {
+  merchantKey: string;
+  merchant: string;
+  /** 1 or 2. Three would make it a Subscription instead. */
+  occurrences: number;
+  latestAmount: number;
+  lastDate: string;
+  /** Ascending by (date, id), mirroring Subscription.chargeIds. */
+  chargeIds: string[];
+  /** How many more charges are needed: MIN_OCCURRENCES - occurrences. */
+  needs: number;
+  /**
+   * When the next charge would land IF the two existing ones already satisfy
+   * both chain rules. Null otherwise -- no date beats a wrong date.
+   */
+  expectedNext: string | null;
+}
+
 export type Verdict = "used" | "likely-unused" | "unknown";
+
+/**
+ * Whether the subscription is still billing.
+ *
+ * "ended" means no charge for longer than ENDED_AFTER_DAYS, i.e. it looks
+ * cancelled. The waste it already caused still counts; the savings it could
+ * still deliver do not.
+ */
+export type SubscriptionStatus = "active" | "ended";
 
 /**
  * Confidence as a closed set of words. There is deliberately no numeric
@@ -130,6 +163,8 @@ export interface EvidenceChain {
   lastDate: string;
   /** firstDate -> lastDate, mirroring Subscription.spanDays. */
   spanDays: number;
+  /** lastDate -> asOf. What "ended" is decided from, carried so the UI can say it. */
+  daysSinceLastCharge: number;
   userAnswer?: { used: boolean; answeredAt: string };
 }
 
@@ -137,6 +172,17 @@ export interface UsageVerdict {
   merchantKey: string;
   merchant: string;
   monthlyAmount: number;
+  /**
+   * Projected date of the next charge: lastDate + cadenceDays. A projection, not
+   * an observation -- the UI must label it "next", never present it as a booked
+   * fact. No currency figure derives from it.
+   */
+  nextCharge: string;
+  /**
+   * "ended" when the chain has stopped billing. Gates annualSavings but never
+   * zombieScore -- the money wasted before a cancellation was still wasted.
+   */
+  status: SubscriptionStatus;
   verdict: Verdict;
   confidence: Confidence;
   /** Rupees. Always === sum(wastedCharges.amount). Zero unless likely-unused. */
@@ -179,6 +225,13 @@ export interface AnalyzeResult {
   subscriptions: Subscription[];
   /** Ranked by zombieScore desc, then a total order so ties are never arbitrary. */
   verdicts: UsageVerdict[];
+  /**
+   * What every ACTIVE subscription costs per billing cycle, summed. The
+   * orientation figure -- "what am I paying?" -- as opposed to totalWasted,
+   * which is the argument. Includes unknowns: you are paying for them whether
+   * or not we can judge them. Excludes ended chains: you are not.
+   */
+  monthlyRunRate: number;
   totalWasted: number;
   annualSavings: number;
   /** Subset of verdicts: unanswered unknowns, ranked by potentialWaste desc. */

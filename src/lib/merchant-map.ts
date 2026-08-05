@@ -111,11 +111,14 @@ const GENERIC_TOKENS = new Set([
 ]);
 
 /**
- * The map. 21 Indian services.
+ * The map. 32 services an Indian user is likely to be billed by.
  *
- * Twelve of the twenty-one have no observable footprint. That is not a gap in
- * the research -- it is the honest shape of the domain, and it is exactly why
- * the Evidence Gap Handler is a headline feature rather than a fallback.
+ * TWENTY-FOUR of the thirty-two have no observable footprint. That is not a gap
+ * in the research -- it is the honest shape of the domain, and it is exactly why
+ * the Evidence Gap Handler is a headline feature rather than a fallback. The
+ * ratio got worse, not better, as the map grew: AI assistants, cloud storage
+ * and creative tools are all pay-once-then-use-invisibly, so every service
+ * added since the first draft has been one the bank statement cannot judge.
  *
  * Two rules that look like nitpicks and are not:
  *
@@ -324,6 +327,129 @@ export const MERCHANTS: readonly MerchantEntry[] = [
     question: "Have you watched anything on Airtel Xstream Play in the last {days} days?",
     cancelHint: "Airtel Thanks app → Manage Services → Xstream Play → Cancel",
   },
+
+  // --- AI assistants -----------------------------------------------------
+  //
+  // The purest form of the problem this product exists for. You pay once a
+  // month and then use it, or don't, entirely invisibly: no order, no booking,
+  // no second charge. Nothing in a bank statement can ever separate a daily
+  // user from someone who signed up in January and forgot. Only the user knows,
+  // so only the user is asked.
+  {
+    key: "openai-chatgpt",
+    displayName: "ChatGPT Plus",
+    footprint: "none",
+    subscriptionPatterns: ["chatgpt", "openai"],
+    question: "Have you used ChatGPT in the last {days} days?",
+    cancelHint: "ChatGPT → Settings → Subscription → Manage → Cancel plan",
+    cancelUrl: "https://chatgpt.com/#settings/Subscription",
+  },
+  {
+    key: "anthropic-claude",
+    displayName: "Claude Pro",
+    footprint: "none",
+    // "claude ai" rather than a bare "claude": the single token is a common
+    // given name and would key any payee containing it to this entry.
+    subscriptionPatterns: ["claude ai", "anthropic"],
+    question: "Have you used Claude in the last {days} days?",
+    cancelHint: "Claude → Settings → Billing → Cancel plan",
+  },
+  {
+    key: "google-gemini",
+    displayName: "Google AI Premium",
+    footprint: "none",
+    // Never a bare "gemini". It collides with nothing in this map today, which
+    // is exactly the condition under which someone later adds a merchant that
+    // does.
+    subscriptionPatterns: ["gemini advanced", "google ai premium", "google ai pro"],
+    question: "Have you used Gemini in the last {days} days?",
+    cancelHint: "Google One → Settings → Manage membership → downgrade from the AI plan",
+    cancelUrl: "https://one.google.com/settings",
+  },
+  {
+    key: "perplexity",
+    displayName: "Perplexity Pro",
+    footprint: "none",
+    subscriptionPatterns: ["perplexity"],
+    question: "Have you used Perplexity in the last {days} days?",
+    cancelHint: "Perplexity → Settings → Account → Manage subscription → Cancel",
+  },
+
+  // --- Cloud storage and photos ------------------------------------------
+  //
+  // Storage has a failure mode the others don't: cancelling can DELETE things.
+  // Every hint here says so, because "you haven't opened it in 90 days" is a
+  // terrible reason to lose a photo library.
+  {
+    key: "google-photos",
+    displayName: "Google Photos storage",
+    footprint: "none",
+    // Two tokens, so it cannot shadow or be shadowed by "google one" --
+    // lookupSubscription takes the longest match and validateMerchantMap's
+    // round-trip check fails loudly if that ever stops being true.
+    subscriptionPatterns: ["google photos"],
+    question: "Are you still relying on Google Photos for backup?",
+    cancelHint:
+      "Google One → Settings → Cancel. Your photos stay, but new backups stop and you drop to 15 GB shared across Gmail and Drive.",
+    cancelUrl: "https://one.google.com/settings",
+  },
+  {
+    key: "dropbox",
+    displayName: "Dropbox",
+    footprint: "none",
+    subscriptionPatterns: ["dropbox"],
+    question: "Have you opened anything in Dropbox in the last {days} days?",
+    cancelHint:
+      "Dropbox → Settings → Plan → Cancel plan. Bring your files under 2 GB first or they become read-only.",
+  },
+  {
+    key: "microsoft-onedrive",
+    displayName: "OneDrive",
+    footprint: "none",
+    subscriptionPatterns: ["onedrive", "one drive"],
+    question: "Are you still relying on OneDrive for storage?",
+    cancelHint:
+      "Microsoft account → Services & subscriptions → Manage → Cancel. Files over the free 5 GB become read-only.",
+  },
+
+  // --- Productivity and creative -----------------------------------------
+  {
+    key: "microsoft-365",
+    displayName: "Microsoft 365",
+    footprint: "none",
+    subscriptionPatterns: ["microsoft 365", "office 365", "msft 365"],
+    question: "Have you used Word, Excel or Outlook in the last {days} days?",
+    cancelHint:
+      "Microsoft account → Services & subscriptions → Manage → Turn off recurring billing",
+    cancelUrl: "https://account.microsoft.com/services",
+  },
+  {
+    key: "adobe-cc",
+    displayName: "Adobe Creative Cloud",
+    footprint: "none",
+    subscriptionPatterns: ["adobe", "creative cloud"],
+    question: "Have you opened an Adobe app in the last {days} days?",
+    cancelHint:
+      "Adobe account → Plans → Manage plan → Cancel. Annual plans charge an early-termination fee — check the date before you cancel.",
+    cancelUrl: "https://account.adobe.com/plans",
+  },
+  {
+    key: "canva",
+    displayName: "Canva Pro",
+    footprint: "none",
+    subscriptionPatterns: ["canva"],
+    question: "Have you designed anything in Canva in the last {days} days?",
+    cancelHint:
+      "Canva → Settings → Billing & plans → Cancel subscription. Pro assets in existing designs get watermarked.",
+  },
+  {
+    key: "notion",
+    displayName: "Notion",
+    footprint: "none",
+    subscriptionPatterns: ["notion"],
+    question: "Have you opened Notion in the last {days} days?",
+    cancelHint: "Notion → Settings → Plans → Downgrade to Free. Your pages stay.",
+  },
 ];
 
 const BY_KEY = new Map(MERCHANTS.map((m) => [m.key, m]));
@@ -490,8 +616,8 @@ export function validateMerchantMap(): string[] {
   const seenKeys = new Set<string>();
   const patternOwner = new Map<string, string>();
 
-  if (MERCHANTS.length !== 21) {
-    problems.push(`expected 21 entries, found ${MERCHANTS.length}`);
+  if (MERCHANTS.length !== 32) {
+    problems.push(`expected 32 entries, found ${MERCHANTS.length}`);
   }
 
   for (const entry of MERCHANTS) {

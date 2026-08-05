@@ -25,6 +25,8 @@ import {
 } from "./merchant-map";
 import {
   detectSubscriptions,
+  hasEnded,
+  nextChargeDate,
   resolveAsOf,
   withinHorizon,
 } from "./subscriptions";
@@ -150,13 +152,27 @@ export function analyze(
     transactionsAnalysed: txns.length,
     subscriptions,
     verdicts: ranked,
+    // Every ACTIVE subscription counts toward what you pay, including the ones
+    // we decline to judge. Filtering unknowns out here would understate the
+    // bill for exactly the services the user is least sure about; leaving
+    // ended ones in would bill them for something they already cancelled.
+    monthlyRunRate: round2(
+      ranked
+        .filter((v) => v.status === "active")
+        .reduce((sum, v) => sum + v.monthlyAmount, 0),
+    ),
     totalWasted: round2(ranked.reduce((sum, v) => sum + v.zombieScore, 0)),
     // Only likely-unused contributes. Unanswered unknowns are worth exactly
     // nothing here, on purpose -- that is the honesty thesis as arithmetic.
+    //
+    // And only ACTIVE ones: a subscription that stopped billing in March
+    // cannot be cancelled again, so promising twelve more months of savings on
+    // it would be inventing money. Its zombieScore is untouched -- that waste
+    // genuinely happened.
     annualSavings: round2(
       12 *
         ranked
-          .filter((v) => v.verdict === "likely-unused")
+          .filter((v) => v.verdict === "likely-unused" && v.status === "active")
           .reduce((sum, v) => sum + v.monthlyAmount, 0),
     ),
     needsInput: ranked
@@ -257,6 +273,7 @@ function judge(
     firstDate: sub.firstDate,
     lastDate: sub.lastDate,
     spanDays: sub.spanDays,
+    daysSinceLastCharge: sub.daysSinceLastCharge,
   };
 
   if (matchesInWindow.length > 0) {
@@ -265,6 +282,8 @@ function judge(
       merchantKey: sub.merchantKey,
       merchant: sub.merchant,
       monthlyAmount: sub.monthlyAmount,
+      nextCharge: nextChargeDate(sub),
+      status: hasEnded(sub) ? "ended" : "active",
       verdict: "used",
       confidence: "high",
       // Zero, and not the literal sum-of-charges-after-last-use. That reading
@@ -291,6 +310,8 @@ function judge(
     merchantKey: sub.merchantKey,
     merchant: sub.merchant,
     monthlyAmount: sub.monthlyAmount,
+    nextCharge: nextChargeDate(sub),
+    status: hasEnded(sub) ? "ended" : "active",
     verdict: "likely-unused",
     confidence: win.lookbackDays < LOOKBACK_DAYS ? "medium" : "high",
     zombieScore: round2(wastedCharges.reduce((sum, c) => sum + c.amount, 0)),
@@ -318,6 +339,8 @@ function gapVerdict(
     merchantKey: sub.merchantKey,
     merchant: sub.merchant,
     monthlyAmount: sub.monthlyAmount,
+    nextCharge: nextChargeDate(sub),
+    status: hasEnded(sub) ? "ended" : "active",
     verdict: "unknown",
     confidence: spec.confidence,
     // No evidence means no claim. Zero, always.
@@ -344,6 +367,7 @@ function gapVerdict(
       firstDate: sub.firstDate,
       lastDate: sub.lastDate,
       spanDays: sub.spanDays,
+      daysSinceLastCharge: sub.daysSinceLastCharge,
     },
   };
 }
