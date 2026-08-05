@@ -20,7 +20,7 @@ into building a better subscription tracker.
 - `npm run test:logic` — engine regression checks (pure functions, no creds)
 - `npm run seed` — seed scripted demo history with planted zombies
 
-## Architecture — three layers
+## Architecture — the layers
 
 **Layer 1 — Recurring detection** (`src/lib/subscriptions.ts`). Same merchant,
 25–35 day cadence, amount within ±10%, 3+ occurrences. Lifted from Rupee Radar
