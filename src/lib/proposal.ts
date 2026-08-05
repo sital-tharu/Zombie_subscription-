@@ -34,12 +34,32 @@ export interface ProposalFinding {
 
 export type ProposalAction = "cancel" | "downgrade" | "keep" | "check";
 
+/**
+ * What moved since last month.
+ *
+ * Every field is derived by comparing two engine runs -- `analyze` at today and
+ * `analyze` at the end of last month. The model is told what changed and asked
+ * to say it; it never works out the difference itself, because a delta is a
+ * number and numbers are not its job.
+ */
+export interface ProposalChanges {
+  /** The as-of date of the earlier run. */
+  previousAsOf: string;
+  previousTotalWasted: number;
+  /** Display names, not keys -- these go straight into prose. */
+  started: string[];
+  stopped: string[];
+  stillIdle: string[];
+}
+
 export interface ProposalInput {
   asOf: string;
   lookbackDays: number;
   totalWasted: number;
   annualSavings: number;
   findings: ProposalFinding[];
+  /** Null on the first month, or wherever there is no earlier run to compare. */
+  changes: ProposalChanges | null;
 }
 
 export interface PlanText {
@@ -58,12 +78,16 @@ export function suggestedAction(verdict: UsageVerdict): ProposalAction {
   return "keep";
 }
 
-export function buildProposalInput(result: AnalyzeResult): ProposalInput {
+export function buildProposalInput(
+  result: AnalyzeResult,
+  previous?: AnalyzeResult,
+): ProposalInput {
   return {
     asOf: result.asOf,
     lookbackDays: result.lookbackDays,
     totalWasted: result.totalWasted,
     annualSavings: result.annualSavings,
+    changes: previous ? compareRuns(result, previous) : null,
     findings: result.verdicts.map((v) => ({
       merchantKey: v.merchantKey,
       merchant: v.merchant,
@@ -76,6 +100,36 @@ export function buildProposalInput(result: AnalyzeResult): ProposalInput {
       reason: v.reason,
       suggestedAction: suggestedAction(v),
     })),
+  };
+}
+
+/**
+ * Diff two engine runs.
+ *
+ * Both runs come from the same pure `analyze`, so this is a set comparison and
+ * nothing more. "stopped" deliberately requires the subscription to have been
+ * ACTIVE in the earlier run -- a chain that was already dead last month is not
+ * news, and reporting it every month would train the user to ignore the line.
+ */
+function compareRuns(current: AnalyzeResult, previous: AnalyzeResult): ProposalChanges {
+  const before = new Map(previous.verdicts.map((v) => [v.merchantKey, v]));
+
+  return {
+    previousAsOf: previous.asOf,
+    previousTotalWasted: previous.totalWasted,
+    started: current.verdicts
+      .filter((v) => !before.has(v.merchantKey))
+      .map((v) => v.merchant),
+    stopped: current.verdicts
+      .filter((v) => v.status === "ended" && before.get(v.merchantKey)?.status === "active")
+      .map((v) => v.merchant),
+    stillIdle: current.verdicts
+      .filter(
+        (v) =>
+          v.verdict === "likely-unused" &&
+          before.get(v.merchantKey)?.verdict === "likely-unused",
+      )
+      .map((v) => v.merchant),
   };
 }
 
@@ -99,6 +153,15 @@ export function allowedNumbers(input: ProposalInput): Set<string> {
   add(input.annualSavings);
   add(input.lookbackDays);
   for (const part of input.asOf.split("-")) allowed.add(String(Number(part)));
+
+  // Last month's figures, or the comparison sentence gets the whole plan
+  // discarded for quoting a number it was explicitly handed.
+  if (input.changes) {
+    add(input.changes.previousTotalWasted);
+    for (const part of input.changes.previousAsOf.split("-")) {
+      allowed.add(String(Number(part)));
+    }
+  }
 
   for (const f of input.findings) {
     add(f.monthlyAmount);
@@ -160,6 +223,22 @@ export function templatePlan(input: ProposalInput): PlanText {
   if (keep.length > 0) {
     sentences.push(`${keep.length} you are clearly still using — keep those.`);
   }
+  // The same month-over-month line the Gemini path is asked for, so the
+  // deterministic plan is not a lesser answer to a different question.
+  if (input.changes) {
+    const c = input.changes;
+    if (c.stillIdle.length > 0) {
+      sentences.push(
+        `${c.stillIdle.join(" and ")} looked idle a month ago too, so this is not a quiet patch — it is a habit.`,
+      );
+    }
+    if (c.stopped.length > 0) {
+      sentences.push(`${c.stopped.join(", ")} stopped billing since then.`);
+    }
+    if (c.started.length > 0) {
+      sentences.push(`${c.started.join(", ")} is new since last month.`);
+    }
+  }
 
   return {
     summary: sentences.join(" "),
@@ -174,6 +253,21 @@ export function templatePlan(input: ProposalInput): PlanText {
             : f.reason,
     })),
   };
+}
+
+/** The month-over-month block, or nothing when there is no earlier run. */
+function changeBlock(input: ProposalInput): string[] {
+  const c = input.changes;
+  if (!c) return [];
+  const list = (names: string[]) => (names.length > 0 ? names.join(", ") : "none");
+  return [
+    `Compared with ${c.previousAsOf}:`,
+    `- Wasted to date was ${inr(c.previousTotalWasted)} then; it is ${inr(input.totalWasted)} now.`,
+    `- Newly detected since then: ${list(c.started)}`,
+    `- Stopped billing since then: ${list(c.stopped)}`,
+    `- Idle then and still idle now: ${list(c.stillIdle)}`,
+    "",
+  ];
 }
 
 /**
@@ -207,12 +301,19 @@ export function buildPrompt(input: ProposalInput): string {
     `Annual saving if every flagged subscription is cancelled: ${inr(input.annualSavings)}`,
     `Usage was checked over the last ${input.lookbackDays} days.`,
     "",
+    ...changeBlock(input),
     "Findings:",
     rows,
     "",
     "Write:",
     '- "summary": two or three sentences. Plain, direct, not salesy. Lead with',
     "  what is being wasted. No greeting and no sign-off.",
+    ...(input.changes
+      ? [
+          "  Mention what changed since last month, using only the comparison",
+          "  above. Do not work out any difference yourself.",
+        ]
+      : []),
     '- "items": one entry per merchantKey above, keeping the given action, with a',
     "  one-sentence rationale in the second person. For a `check` action, say",
     "  plainly that we cannot tell and are asking rather than guessing.",

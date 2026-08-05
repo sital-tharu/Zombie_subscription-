@@ -63,7 +63,7 @@ export function PlanPanel({
           type="button"
           onClick={generate}
           disabled={pending}
-          className="mt-4 rounded-lg bg-[#e9edf5] px-5 py-2.5 text-sm font-semibold text-[var(--color-ink)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="mt-4 rounded-lg bg-[var(--color-invert-bg)] px-5 py-2.5 text-sm font-semibold text-[var(--color-invert-fg)] transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {pending ? "Writing the plan…" : "Generate my plan"}
         </button>
@@ -76,6 +76,11 @@ export function PlanPanel({
   const securedMonthly = cancels
     .filter((i) => done.has(i.merchantKey))
     .reduce((sum, i) => sum + (services[i.merchantKey]?.monthlyAmount ?? 0), 0);
+  const securedAnnual = securedMonthly * 12;
+  // Clamped: a service missing from `services` contributes 0 to securedAnnual
+  // while still counting toward annualSavings, which could otherwise render a
+  // negative "still on the table".
+  const remainingAnnual = Math.max(0, proposal.annualSavings - securedAnnual);
 
   return (
     <div className="rounded-xl border border-[var(--color-edge)] bg-[var(--color-panel)] p-5 sm:p-6">
@@ -109,17 +114,47 @@ export function PlanPanel({
 
       {proposal.status === "accepted" && cancels.length > 0 && (
         <div className="mt-6 border-t border-[var(--color-edge)] pt-5">
+          {/*
+            What accepting is actually worth, counted only as items are ticked.
+            Announcing the full figure the moment Accept is pressed would be the
+            one kind of lie this product exists to avoid: nothing is saved until
+            the user has genuinely cancelled something.
+          */}
+          <div className="mb-4 rounded-lg bg-[var(--color-alive-dim)] px-4 py-3">
+            {done.size === 0 ? (
+              <p className="text-sm text-[var(--color-muted)]">
+                Nothing saved yet — tick each one off as you actually cancel it. That is{" "}
+                <span className="tnum font-medium text-[var(--color-alive)]">
+                  {inr(proposal.annualSavings)}
+                </span>{" "}
+                a year once the list is clear.
+              </p>
+            ) : (
+              <>
+                <p className="tnum text-xl font-semibold text-[var(--color-alive)]">
+                  You&apos;ve saved {inr(securedAnnual)} a year
+                </p>
+                <p className="mt-1 text-xs text-[var(--color-muted)]">
+                  {remainingAnnual > 0 ? (
+                    <>
+                      <span className="tnum">{inr(remainingAnnual)}</span> still on the table
+                      — {cancels.length - done.size} left to cancel.
+                    </>
+                  ) : (
+                    "Every subscription on this list is cancelled. Nothing left on the table."
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-sm font-semibold">Your cancellation checklist</h3>
             <span className="text-sm text-[var(--color-muted)]">
               <span className="tnum">
                 {done.size} of {cancels.length}
               </span>{" "}
-              done ·{" "}
-              <span className="tnum text-[var(--color-alive)]">
-                {inr(securedMonthly * 12)}
-              </span>{" "}
-              of {inr(proposal.annualSavings)} secured
+              done
             </span>
           </div>
 

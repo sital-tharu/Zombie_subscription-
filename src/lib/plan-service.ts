@@ -4,6 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { analyze } from "./correlate";
+import { addMonths, lastDayOfMonth, monthKey } from "./format";
 import { GEMINI_MODEL, getGeminiClient, hasGeminiKey } from "./gemini";
 import {
   buildPrompt,
@@ -49,7 +50,20 @@ export async function generateProposal(): Promise<GeneratedPlan> {
     store.listAnswers(),
   ]);
   const result = analyze(transactions, undefined, { answers });
-  const input = buildProposalInput(result);
+
+  /*
+   * A second run, as of the end of last month, purely so the plan can say what
+   * changed. `analyze` is pure and cheap over a few thousand rows, and running
+   * it twice is far safer than storing last month's verdicts and hoping they
+   * were computed by the same version of the engine.
+   */
+  const previousAsOf = lastDayOfMonth(addMonths(monthKey(result.asOf), -1));
+  const previous =
+    result.historyStart !== null && result.historyStart <= previousAsOf
+      ? analyze(transactions, previousAsOf, { answers })
+      : undefined;
+
+  const input = buildProposalInput(result, previous);
 
   const { plan, generatedBy, fallbackReason } = await writePlan(input);
 
