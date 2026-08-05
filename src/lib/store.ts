@@ -135,6 +135,92 @@ function serviceAccountPath(path: string): string {
   return resolve(/* turbopackIgnore: true */ process.cwd(), path);
 }
 
+/**
+ * How long a read may be reused.
+ *
+ * The dashboard is force-dynamic, so every render re-reads everything: roughly
+ * a hundred Firestore documents for one page view. A dev server hot-reloading
+ * on save, or a demo being clicked through, gets through the free tier's daily
+ * read quota alarmingly fast -- and when it runs out, every page 500s.
+ *
+ * Ten seconds is chosen to be shorter than a human notices and longer than a
+ * burst of re-renders. It is not a correctness risk, because every write on
+ * this Store clears the cache before it returns: answer a question and the next
+ * render reads fresh. The only staleness window is another PROCESS writing --
+ * `npm run seed` while the dev server is up -- and that self-heals in ten
+ * seconds.
+ */
+const READ_TTL_MS = 10_000;
+
+/**
+ * Read-through cache in front of any Store, invalidated by every write.
+ *
+ * Caches the promise rather than the resolved value, so concurrent callers
+ * share one round trip. A rejected promise is evicted immediately -- caching a
+ * failure for ten seconds would turn one transient error into a stuck page.
+ */
+function withReadCache(inner: Store): Store {
+  const hits = new Map<string, { at: number; value: Promise<unknown> }>();
+  const bust = () => hits.clear();
+
+  const read = <T>(key: string, load: () => Promise<T>): Promise<T> => {
+    const hit = hits.get(key);
+    if (hit && Date.now() - hit.at < READ_TTL_MS) return hit.value as Promise<T>;
+    const value = load();
+    hits.set(key, { at: Date.now(), value });
+    value.catch(() => hits.delete(key));
+    return value;
+  };
+
+  /** Wrap a write so it clears the cache, whether it succeeds or throws. */
+  const write = <A extends unknown[], T>(fn: (...args: A) => Promise<T>) => {
+    return async (...args: A): Promise<T> => {
+      try {
+        return await fn(...args);
+      } finally {
+        bust();
+      }
+    };
+  };
+
+  return {
+    mode: inner.mode,
+
+    listTransactions: (limit) =>
+      read(`txns:${limit ?? "default"}`, () => inner.listTransactions(limit)),
+    listAnswers: () => read("answers", () => inner.listAnswers()),
+    listCancellations: () => read("cancellations", () => inner.listCancellations()),
+    listEmails: () => read("emails", () => inner.listEmails()),
+    latestProposal: () => read("proposal", () => inner.latestProposal()),
+    getGmailToken: () => read("gmailToken", () => inner.getGmailToken()),
+
+    addTransactions: write(inner.addTransactions.bind(inner)),
+    replaceSeeded: write(inner.replaceSeeded.bind(inner)),
+    deleteTransactions: write(inner.deleteTransactions.bind(inner)),
+    saveAnswer: write(inner.saveAnswer.bind(inner)),
+    clearAnswer: write(inner.clearAnswer.bind(inner)),
+    saveCancellation: write(inner.saveCancellation.bind(inner)),
+    clearCancellation: write(inner.clearCancellation.bind(inner)),
+    saveProposal: write(inner.saveProposal.bind(inner)),
+    setProposalStatus: write(inner.setProposalStatus.bind(inner)),
+    clearProposals: write(inner.clearProposals.bind(inner)),
+    saveEmails: write(inner.saveEmails.bind(inner)),
+    clearEmails: write(inner.clearEmails.bind(inner)),
+    saveGmailToken: write(inner.saveGmailToken.bind(inner)),
+    clearGmailToken: write(inner.clearGmailToken.bind(inner)),
+  };
+}
+
+/**
+ * True when the store refused because a quota ran out, rather than because
+ * anything is wrong with the code or the data. Worth telling apart: one is
+ * "wait, or upgrade the plan" and the other is "something is broken".
+ */
+export function isQuotaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /RESOURCE_EXHAUSTED|Quota exceeded/i.test(message);
+}
+
 let cached: Store | null = null;
 
 /**
@@ -163,7 +249,11 @@ export async function getStore(): Promise<Store> {
             "because secrets/ is gitignored and never deployed.",
       );
     }
-    cached = storeMode() === "firestore" ? await firestoreStore() : localStore();
+    const base = storeMode() === "firestore" ? await firestoreStore() : localStore();
+    // The local adapter reads a file that the OS already caches, so the wrapper
+    // buys it little -- but applying it uniformly keeps the two modes behaving
+    // identically, which is worth more than the saved microseconds.
+    cached = withReadCache(base);
   }
   return cached;
 }

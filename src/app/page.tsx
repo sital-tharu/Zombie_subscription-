@@ -23,6 +23,7 @@ import { hasGmailCredentials, isGmailConnected } from "@/lib/gmail-auth";
 import { cancelGuidance } from "@/lib/merchant-map";
 import {
   getStore,
+  isQuotaError,
   readWasTruncated,
   storeMode,
   TRANSACTION_READ_LIMIT,
@@ -47,14 +48,32 @@ export default async function Home({
   const sp = await searchParams;
   const monthRaw = Array.isArray(sp.m) ? sp.m[0] : sp.m;
 
+  /*
+   * Everything the page needs, in one guarded read.
+   *
+   * Unguarded, a database that is merely unavailable takes the whole dashboard
+   * down with a stack trace -- which is what happened when the Firestore free
+   * tier's daily read quota ran out mid-session. A demo screen showing a Next.js
+   * error overlay is worse than one showing a sentence, and "the quota reset is
+   * at midnight" is a sentence a person can act on.
+   */
+  let transactions: StoredTransaction[];
+  let answers: Awaited<ReturnType<typeof store.listAnswers>>;
+  let cancellations: Awaited<ReturnType<typeof store.listCancellations>>;
+  let emails: Awaited<ReturnType<typeof store.listEmails>>;
+  let proposal: Awaited<ReturnType<typeof store.latestProposal>>;
   const store = await getStore();
-  const [transactions, answers, cancellations, emails, proposal] = await Promise.all([
-    store.listTransactions(),
-    store.listAnswers(),
-    store.listCancellations(),
-    store.listEmails(),
-    store.latestProposal(),
-  ]);
+  try {
+    [transactions, answers, cancellations, emails, proposal] = await Promise.all([
+      store.listTransactions(),
+      store.listAnswers(),
+      store.listCancellations(),
+      store.listEmails(),
+      store.latestProposal(),
+    ]);
+  } catch (error) {
+    return <StoreDown error={error} mode={storeMode()} />;
+  }
 
   const gmailReady = hasGmailCredentials();
   const gmailConnected = gmailReady ? await isGmailConnected() : false;
@@ -757,6 +776,64 @@ function HowDetectionWorks({ lookbackDays }: { lookbackDays: number }) {
         </p>
       </div>
     </details>
+  );
+}
+
+/**
+ * The database said no. Names the cause, because the two likely ones need
+ * completely different responses from the reader.
+ */
+function StoreDown({ error, mode }: { error: unknown; mode: string }) {
+  const quota = isQuotaError(error);
+  const detail = error instanceof Error ? error.message : String(error);
+
+  return (
+    <main className="mx-auto w-full max-w-2xl px-6 py-16">
+      <div className="flex items-center gap-3">
+        <Logo size={44} className="shrink-0" />
+        <div>
+          <p className="font-mono text-xs tracking-widest text-[var(--color-muted)]">ZOMBIE</p>
+          <p className="mt-0.5 text-[13px] text-[var(--color-dim)]">Judges usage, not billing</p>
+        </div>
+      </div>
+
+      <h1 className="mt-8 text-xl font-semibold">
+        {quota ? "The database is out of quota for today" : "The database is unreachable"}
+      </h1>
+
+      {quota ? (
+        <div className="mt-3 space-y-3 text-[13px] text-[var(--color-muted)]">
+          <p>
+            Firestore&apos;s free tier allows 50,000 document reads a day, and this
+            project has used them. Nothing is broken and no data is lost — reads simply
+            stop until the quota resets at midnight US Pacific.
+          </p>
+          <p>
+            To keep working now, run against the local JSON store instead, which never
+            touches Firestore:
+          </p>
+          <div className="overflow-x-auto rounded-lg bg-[var(--color-panel)] p-3 font-mono text-xs">
+            <div>ZOMBIE_STORE=local npm run seed</div>
+            <div>ZOMBIE_STORE=local npm run dev</div>
+          </div>
+          <p>
+            A page view costs roughly one read per stored transaction, so a dev server
+            reloading on every save is usually what exhausts it.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3 text-[13px] text-[var(--color-muted)]">
+          <p>
+            The {mode} store could not be read. If this is a fresh clone, leave the
+            Firebase variables empty and the app will use a local JSON file instead.
+          </p>
+        </div>
+      )}
+
+      <p className="mt-6 border-t border-[var(--color-edge)] pt-4 font-mono text-xs break-words text-[var(--color-dim)]">
+        {detail}
+      </p>
+    </main>
   );
 }
 
