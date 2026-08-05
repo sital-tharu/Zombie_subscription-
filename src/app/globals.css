@@ -1,33 +1,85 @@
 @import "tailwindcss";
 
-@theme {
-  --color-ink: #0a0c10;
-  --color-panel: #12151c;
-  --color-panel-2: #171b24;
-  --color-edge: #242a36;
-  --color-muted: #8b94a7;
-  --color-dim: #5f6878;
-
-  /* Verdict colours. Red for money being wasted, green for money well spent,
-     amber for "we genuinely cannot tell" -- amber never reads as a mild red. */
-  --color-zombie: #ff5f56;
-  --color-zombie-dim: #3a1a1c;
-  --color-alive: #3fb950;
-  --color-alive-dim: #12291a;
-  --color-unsure: #e3a008;
-  --color-unsure-dim: #33270a;
+/* Wire the next/font faces loaded in layout.tsx into Tailwind's font utilities,
+   so `font-mono` is Geist Mono rather than the browser's Courier fallback. */
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
-html {
-  color-scheme: dark;
+/*
+ * One palette, two schemes.
+ *
+ * Every component reads these through arbitrary values -- bg-[var(--color-panel)]
+ * -- rather than through generated Tailwind utilities, which is what makes a
+ * media-query swap here retheme the entire app without touching a component.
+ *
+ * The verdict colours are NOT the same hex in both schemes. #ff5f56 is legible
+ * on #0a0c10 and washes out to a pink on white; the light values are darkened
+ * until each clears 4.5:1 on its own background. A verdict that is hard to read
+ * is a verdict that does not land.
+ */
+:root {
+  color-scheme: light;
+
+  --color-ink: #ffffff;
+  --color-fg: #171717;
+  --color-panel: #f9fafb;
+  --color-panel-2: #f3f4f6;
+  --color-edge: #e5e7eb;
+  --color-muted: #6b7280;
+  --color-dim: #9ca3af;
+
+  /* Inverted pair, for the one high-emphasis button that fills with the
+     foreground colour. Without it the button is light-on-light in this scheme. */
+  --color-invert-bg: #171717;
+  --color-invert-fg: #ffffff;
+
+  /* Red for money being wasted, green for money well spent, amber for "we
+     genuinely cannot tell" -- amber never reads as a mild red. */
+  --color-zombie: #dc2626;
+  --color-zombie-dim: #fef2f2;
+  --color-alive: #047857;
+  --color-alive-dim: #ecfdf5;
+  --color-unsure: #b45309;
+  --color-unsure-dim: #fffbeb;
+
+  --page-bg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --color-ink: #0a0c10;
+    --color-fg: #e9edf5;
+    --color-panel: #12151c;
+    --color-panel-2: #171b24;
+    --color-edge: #242a36;
+    --color-muted: #8b94a7;
+    --color-dim: #5f6878;
+
+    --color-invert-bg: #e9edf5;
+    --color-invert-fg: #0a0c10;
+
+    --color-zombie: #ff5f56;
+    --color-zombie-dim: #3a1a1c;
+    --color-alive: #3fb950;
+    --color-alive-dim: #12291a;
+    --color-unsure: #e3a008;
+    --color-unsure-dim: #33270a;
+
+    --page-bg:
+      radial-gradient(900px 500px at 15% -8%, #1b2030 0%, transparent 60%),
+      #0a0c10;
+  }
 }
 
 body {
-  background:
-    radial-gradient(900px 500px at 15% -8%, #1b2030 0%, transparent 60%),
-    var(--color-ink);
-  color: #e9edf5;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--page-bg);
+  color: var(--color-fg);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 

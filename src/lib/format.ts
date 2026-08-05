@@ -14,10 +14,113 @@ export function inr(amount: number): string {
   })}`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const MONTHS_FULL = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 export function shortDate(iso: string): string {
   const [y, m, d] = iso.split("-");
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${Number(d)} ${months[Number(m) - 1]} ${y.slice(2)}`;
+  return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y.slice(2)}`;
+}
+
+/**
+ * "22 Aug" -- the year dropped. Only for the projected next charge, which is
+ * always within about a month, where the year is noise in a scannable column.
+ */
+export function dayMonth(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${Number(d)} ${MONTHS[Number(m) - 1]}`;
+}
+
+/** "August 2026". Accepts a full ISO date or a bare "YYYY-MM" month key. */
+export function monthLabel(iso: string): string {
+  const [y, m] = iso.split("-");
+  return `${MONTHS_FULL[Number(m) - 1]} ${y}`;
+}
+
+// ---------------------------------------------------------------------------
+// Month keys, for the ‹ › navigator.
+//
+// "YYYY-MM" strings rather than Date objects, so every comparison is a string
+// comparison and nothing can drift by a timezone. The engine's own dates are
+// ISO strings for the same reason.
+// ---------------------------------------------------------------------------
+
+/** "2026-08-04" -> "2026-08". */
+export function monthKey(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+/** "2026-08" -> "2026-08-01". */
+export function firstDayOfMonth(key: string): string {
+  return `${key}-01`;
+}
+
+/** "2026-08" -> "2026-08-31". Handles February and leap years via day 0 rollover. */
+export function lastDayOfMonth(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  // Day 0 of the NEXT month is the last day of this one.
+  const day = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${key}-${String(day).padStart(2, "0")}`;
+}
+
+/** Step a month key by `delta` months, wrapping the year. */
+export function addMonths(key: string, delta: number): string {
+  const [y, m] = key.split("-").map(Number);
+  const total = y * 12 + (m - 1) + delta;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/** True when `key` is a well-formed "YYYY-MM". */
+export function isMonthKey(key: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(key)) return false;
+  const month = Number(key.slice(5));
+  return month >= 1 && month <= 12;
+}
+
+/**
+ * Where a transaction came from, as a word.
+ *
+ * `seeded` is checked before `source` because a seeded row also carries
+ * source: "seed" -- but a row seeded by an older script version might not, and
+ * showing scripted demo data as though it were a real receipt is exactly the
+ * claim this badge exists to prevent.
+ */
+export function sourceLabel(source: string | undefined, seeded?: boolean): string {
+  if (seeded || source === "seed") return "Demo";
+  switch (source) {
+    case "email":
+      return "Email";
+    case "photo":
+      return "Receipt";
+    case "manual":
+      return "Manual";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * A verdict as a single character, for the scan column.
+ *
+ * Never the only carrier of the verdict: colour, and the word beside the money
+ * figure, both say the same thing. A glyph alone would fail anyone reading in
+ * greyscale or with a screen reader.
+ */
+export function verdictGlyph(verdict: Verdict): string {
+  switch (verdict) {
+    case "likely-unused":
+      return "✕";
+    case "used":
+      return "✓";
+    case "unknown":
+      return "?";
+  }
 }
 
 /**
