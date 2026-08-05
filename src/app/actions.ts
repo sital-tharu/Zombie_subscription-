@@ -11,6 +11,7 @@ import {
   recordAnswer,
   recordCancellations,
 } from "@/lib/ingest";
+import { askAgent, type ChatAnswer } from "@/lib/chat-service";
 import { syncGmail } from "@/lib/gmail";
 import { generateProposal, setProposalDecision } from "@/lib/plan-service";
 
@@ -179,6 +180,18 @@ export async function syncGmailAction(): Promise<{ ok: boolean; message: string 
       message: error instanceof Error ? error.message : "Sync failed.",
     };
   }
+}
+
+/**
+ * Ask the assistant one question.
+ *
+ * A server action rather than a route, like every other control here, so the
+ * question never leaves the origin and no key is involved. Returns the source
+ * alongside the text: the UI says when an answer was computed rather than
+ * written, because those are different levels of assurance.
+ */
+export async function askAgentAction(question: string): Promise<ChatAnswer> {
+  return askAgent(question);
 }
 
 /** Demo beat six: the plan, and the annual savings total. */

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ChatBubble } from "@/components/chat-bubble";
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({
       <body className="min-h-screen antialiased">
         <SiteHeader />
         {children}
+        <ChatBubble />
       </body>
     </html>
   );

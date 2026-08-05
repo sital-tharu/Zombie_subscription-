@@ -61,6 +61,17 @@ export interface Store {
   clearEmails(): Promise<number>;
 
   /**
+   * Spend one unit of a daily allowance. False when it is already gone.
+   *
+   * A floor under cost, NOT rate limiting -- worth saying plainly, because the
+   * shape invites the wrong assumption. It is one global counter, so a single
+   * caller can drain the day and lock everyone else out. That is an acceptable
+   * failure for a single-owner demo whose alternative is an unbounded bill; it
+   * would not be acceptable as a security control.
+   */
+  consumeQuota(kind: string, limit: number): Promise<boolean>;
+
+  /**
    * The Gmail refresh token. Stored server-side and never sent to a browser;
    * kept behind this interface rather than reached for directly so that local
    * dogfooding does not need Firestore at all.
@@ -77,6 +88,7 @@ const CANCELLATIONS = "cancellations";
 const EMAILS = "emails";
 const CONFIG = "config";
 const GMAIL_TOKEN_DOC = "gmailToken";
+const USAGE = "usage";
 
 /**
  * How many transactions a single read returns.
@@ -205,6 +217,9 @@ function withReadCache(inner: Store): Store {
     setProposalStatus: write(inner.setProposalStatus.bind(inner)),
     clearProposals: write(inner.clearProposals.bind(inner)),
     saveEmails: write(inner.saveEmails.bind(inner)),
+    // Deliberately uncached and cache-busting: a quota check is a write, and
+    // serving a memoised "yes" would let ten messages spend one unit.
+    consumeQuota: write(inner.consumeQuota.bind(inner)),
     clearEmails: write(inner.clearEmails.bind(inner)),
     saveGmailToken: write(inner.saveGmailToken.bind(inner)),
     clearGmailToken: write(inner.clearGmailToken.bind(inner)),
@@ -437,6 +452,19 @@ async function firestoreStore(): Promise<Store> {
       return snap.docs.length;
     },
 
+    async consumeQuota(kind, limit) {
+      // A transaction, not a read-then-write: serverless instances share no
+      // memory, and two arriving together would both read the old count.
+      const ref = db.collection(USAGE).doc(new Date().toISOString().slice(0, 10));
+      return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const used = (snap.data()?.[kind] as number | undefined) ?? 0;
+        if (used >= limit) return false;
+        tx.set(ref, { [kind]: used + 1 }, { merge: true });
+        return true;
+      });
+    },
+
     async getGmailToken() {
       const doc = await db.collection(CONFIG).doc(GMAIL_TOKEN_DOC).get();
       const stored = doc.data()?.refreshToken;
@@ -468,6 +496,7 @@ interface LocalShape {
   cancellations: Cancellation[];
   emails: EmailEvent[];
   gmailRefreshToken?: string;
+  usage?: { day: string; counts: Record<string, number> };
 }
 
 const EMPTY: LocalShape = {
@@ -615,6 +644,18 @@ function localStore(): Store {
       data.emails = [];
       write(data);
       return count;
+    },
+
+    async consumeQuota(kind, limit) {
+      const data = read();
+      const today = new Date().toISOString().slice(0, 10);
+      const usage = data.usage?.day === today ? data.usage : { day: today, counts: {} };
+      const used = usage.counts[kind] ?? 0;
+      if (used >= limit) return false;
+      usage.counts[kind] = used + 1;
+      data.usage = usage;
+      write(data);
+      return true;
     },
 
     async getGmailToken() {

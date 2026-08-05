@@ -19,6 +19,13 @@ import {
   LOOKBACK_DAYS,
   rankVerdicts,
 } from "../src/lib/correlate";
+import {
+  answerIsGrounded,
+  buildChatContext,
+  buildChatPrompt,
+  chatAllowedNumbers,
+  deterministicAnswer,
+} from "../src/lib/chat";
 import { addDaysIso, round2 } from "../src/lib/dates";
 import {
   cancelGuidance,
@@ -1168,6 +1175,124 @@ check("EMAIL: the trap is real -- the positive case genuinely fires", () => {
     }
   }
   assert.ok(fired > 0, "if nothing ever matches, the billing check proves nothing");
+});
+
+// ---------------------------------------------------------------------------
+// CHAT -- the assistant, and why it cannot lie about money.
+//
+// Every question a person actually asks this app is a money question, so the
+// chatbot is the most dangerous place a language model sits in this product.
+// The donor project's equivalent has no output validation at all and no tests;
+// these are the checks that make the difference real rather than aspirational.
+// ---------------------------------------------------------------------------
+
+function seedContext() {
+  const result = analyze(buildSeedTransactions({ asOf: ASOF }), ASOF);
+  return buildChatContext(result, result.transactionsAnalysed);
+}
+
+check("CHAT: an invented figure discards the answer", () => {
+  const ctx = seedContext();
+  assert.strictEqual(
+    answerIsGrounded("You could save ₹9,999 a year by cancelling these.", ctx),
+    false,
+    "9999 was never supplied and must not survive",
+  );
+  assert.strictEqual(
+    answerIsGrounded("Your Netflix costs ₹1,250 a month.", ctx),
+    false,
+    "a plausible but wrong figure is the dangerous case",
+  );
+});
+
+check("CHAT: figures we supplied pass through", () => {
+  const ctx = seedContext();
+  assert.ok(
+    answerIsGrounded(
+      "You have wasted ₹2,893 so far, and cancelling would stop ₹5,988 a year.",
+      ctx,
+    ),
+  );
+  assert.ok(
+    answerIsGrounded("Amazon Prime is ₹299 a month and has wasted ₹2,093.", ctx),
+    "per-subscription figures are supplied too",
+  );
+  assert.ok(
+    answerIsGrounded("You have 5 subscriptions costing ₹1,746 a month.", ctx),
+    "small counts and the run rate both pass",
+  );
+});
+
+check("CHAT: Indian digit grouping does not fool the guard", () => {
+  const ctx = seedContext();
+  // inr() renders 2893 as "2,893", so the scanner has to strip separators or it
+  // would reject the app's own formatting of its own figures.
+  assert.ok(answerIsGrounded("That is ₹2,893 wasted.", ctx));
+  assert.strictEqual(answerIsGrounded("That is ₹2,894 wasted.", ctx), false);
+});
+
+check("CHAT: the computed answer reproduces the engine exactly", () => {
+  const ctx = seedContext();
+  const answer = deterministicAnswer(ctx, "How much money did I waste last month?");
+  assert.ok(answer, "the waste question must have a code-authored answer");
+  assert.ok(
+    answer.includes("₹2,893"),
+    `expected the engine's totalWasted verbatim, got: ${answer}`,
+  );
+  assert.strictEqual(ctx.totalWasted, EXPECTED_SEED_OUTCOME.totalWasted);
+  // And it must satisfy its own guard -- a fallback that could not pass the
+  // check it exists to serve would be worse than no fallback.
+  assert.ok(answerIsGrounded(answer, ctx));
+});
+
+check("CHAT: the summary answer is grounded and complete", () => {
+  const ctx = seedContext();
+  const answer = deterministicAnswer(ctx, "Can you show me my monthly subscription summary?");
+  assert.ok(answer);
+  assert.ok(answer.includes("₹1,746"), "the run rate");
+  for (const name of ["Amazon Prime", "Zomato Gold", "Netflix", "Swiggy One"]) {
+    assert.ok(answer.includes(name), `${name} missing from the summary`);
+  }
+  assert.ok(answerIsGrounded(answer, ctx));
+});
+
+check("CHAT: 'what is a zombie subscription' needs no figures at all", () => {
+  const ctx = seedContext();
+  const answer = deterministicAnswer(ctx, "What is a zombie subscription?");
+  assert.ok(answer);
+  assert.ok(answer.toLowerCase().includes("no longer using"));
+  assert.ok(answerIsGrounded(answer, ctx));
+});
+
+check("CHAT: an off-topic question gets no computed answer", () => {
+  const ctx = seedContext();
+  // No intent match means no code-authored reply, which means an ungrounded or
+  // absent model response falls through to the refusal rather than a guess.
+  assert.strictEqual(deterministicAnswer(ctx, "Who won the cricket match?"), null);
+  assert.strictEqual(deterministicAnswer(ctx, "Write me a poem about cats"), null);
+});
+
+check("CHAT: the context carries every figure the dashboard shows", () => {
+  const ctx = seedContext();
+  assert.strictEqual(ctx.totalWasted, 2893);
+  assert.strictEqual(ctx.annualSavings, 5988);
+  assert.strictEqual(ctx.monthlyRunRate, 1746);
+  assert.strictEqual(ctx.subscriptions.length, 5);
+
+  const allowed = chatAllowedNumbers(ctx);
+  for (const n of [2893, 5988, 1746, 2093, 800, 299, 649]) {
+    assert.ok(allowed.has(String(n)), `${n} should be quotable`);
+  }
+  assert.ok(!allowed.has("9999"), "an arbitrary figure must not be quotable");
+});
+
+check("CHAT: the prompt hands over figures rather than asking for them", () => {
+  const ctx = seedContext();
+  const prompt = buildChatPrompt(ctx, "how much am I wasting?");
+  assert.ok(prompt.includes("₹2,893"), "the answer is supplied, not requested");
+  assert.ok(prompt.includes("₹5,988"));
+  assert.ok(/do not calculate/i.test(prompt), "the rule is stated to the model too");
+  assert.ok(prompt.includes("how much am I wasting?"), "the question reaches it verbatim");
 });
 
 check("DET: rewinding asOf gives the historically correct answer", () => {
