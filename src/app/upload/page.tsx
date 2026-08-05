@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { Logo } from "@/components/logo";
 import { UploadForm } from "@/components/upload-form";
 import { hasGeminiKey } from "@/lib/gemini";
 
@@ -14,23 +12,7 @@ export const metadata = {
 export default function UploadPage() {
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-10">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-3">
-          <Logo size={44} className="shrink-0" />
-          <div>
-            <p className="font-mono text-xs tracking-widest text-[var(--color-muted)]">ZOMBIE</p>
-            <p className="mt-0.5 text-[13px] text-[var(--color-dim)]">Judges usage, not billing</p>
-          </div>
-        </Link>
-        <Link
-          href="/"
-          className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-        >
-          ← Back to dashboard
-        </Link>
-      </div>
-
-      <h1 className="mt-8 text-xl font-semibold">Add a payment screenshot</h1>
+      <h1 className="text-xl font-semibold">Add a payment screenshot</h1>
       <p className="mt-2 text-[13px] text-[var(--color-muted)]">
         Gemini reads the payee names, dates and amounts off the image. That is the only
         thing it does here — every verdict, every window and every rupee downstream is

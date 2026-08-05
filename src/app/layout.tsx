@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
+
+// The header reports whether Gmail is connected, which is per-request state.
+// A build-time snapshot would show "Connect" to someone who already had.
+export const dynamic = "force-dynamic";
 
 // Geist Sans for prose, Geist Mono for every figure. The mono face is doing
 // real work: money that shifts width as digits change reads as unreliable, and
@@ -26,7 +31,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <SiteHeader />
+        {children}
+      </body>
     </html>
   );
 }

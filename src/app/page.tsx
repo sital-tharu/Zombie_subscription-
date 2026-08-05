@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { GmailSync } from "@/components/gmail-sync";
-import { Logo } from "@/components/logo";
 import { PlanPanel } from "@/components/plan-panel";
 import { SourceBadge, VerdictCard } from "@/components/verdict-card";
 import { analyze, LOOKBACK_DAYS } from "@/lib/correlate";
@@ -17,10 +15,6 @@ import {
   sourceLabel,
   verdictGlyph,
 } from "@/lib/format";
-import { hasGeminiKey } from "@/lib/gemini";
-import { gmailLabel } from "@/lib/gmail";
-import { hasGmailCredentials, isGmailConnected } from "@/lib/gmail-auth";
-import { ownerKeyConfigured } from "@/lib/auth";
 import { cancelGuidance } from "@/lib/merchant-map";
 import {
   getStore,
@@ -75,9 +69,6 @@ export default async function Home({
   } catch (error) {
     return <StoreDown error={error} mode={storeMode()} />;
   }
-
-  const gmailReady = hasGmailCredentials();
-  const gmailConnected = gmailReady ? await isGmailConnected() : false;
 
   const today = todayIso();
   const currentMonth = monthKey(today);
@@ -240,27 +231,6 @@ export default async function Home({
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
-      {/* Brand row + the monthly total, mirroring Rupee Radar's header. */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Logo size={44} className="shrink-0" />
-          <div>
-            <p className="font-mono text-xs tracking-widest text-[var(--color-muted)]">ZOMBIE</p>
-            <p className="mt-0.5 text-[13px] text-[var(--color-dim)]">
-              Judges usage, not billing
-            </p>
-          </div>
-        </div>
-        {result.subscriptions.length > 0 && (
-          <div className="text-right">
-            <p className="text-xs text-[var(--color-dim)]">Subscriptions · monthly total</p>
-            <p className="tnum mt-0.5 font-mono text-[15px] font-medium">
-              {inr(result.monthlyRunRate)}/mo
-            </p>
-          </div>
-        )}
-      </div>
-
       {transactions.length === 0 ? (
         <EmptyState />
       ) : (
@@ -295,22 +265,18 @@ export default async function Home({
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {hasGeminiKey() && (
-                <Link
-                  href="/upload"
-                  className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors hover:border-[var(--color-muted)]"
-                >
-                  + Add a screenshot
-                </Link>
-              )}
-              <GmailSync
-                configured={gmailReady}
-                protectedByKey={ownerKeyConfigured()}
-                connected={gmailConnected}
-                label={gmailLabel()}
-              />
-            </div>
+            {/* Took the space the intake buttons left. It belongs beside the
+                month it describes rather than beside the app's name. */}
+            {result.subscriptions.length > 0 && (
+              <div className="text-right">
+                <p className="text-xs text-[var(--color-dim)]">
+                  Subscriptions · monthly total
+                </p>
+                <p className="tnum mt-0.5 font-mono text-[15px] font-medium">
+                  {inr(result.monthlyRunRate)}/mo
+                </p>
+              </div>
+            )}
           </div>
 
           {!isCurrentMonth && (
@@ -789,15 +755,7 @@ function StoreDown({ error, mode }: { error: unknown; mode: string }) {
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-16">
-      <div className="flex items-center gap-3">
-        <Logo size={44} className="shrink-0" />
-        <div>
-          <p className="font-mono text-xs tracking-widest text-[var(--color-muted)]">ZOMBIE</p>
-          <p className="mt-0.5 text-[13px] text-[var(--color-dim)]">Judges usage, not billing</p>
-        </div>
-      </div>
-
-      <h1 className="mt-8 text-xl font-semibold">
+      <h1 className="text-xl font-semibold">
         {quota ? "The database is out of quota for today" : "The database is unreachable"}
       </h1>
 
