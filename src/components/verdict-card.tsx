@@ -1,5 +1,7 @@
+import { GapQuestion } from "@/components/gap-question";
 import {
   confidenceLabel,
+  dayMonth,
   daysAgoLabel,
   inr,
   monthsLabel,
@@ -10,88 +12,173 @@ import {
 import type { UsageVerdict } from "@/lib/types";
 
 /**
- * One subscription, with its evidence chain one click away.
+ * One subscription as a two-line row, with its evidence chain one click away.
  *
  * Built on native <details>, so expanding costs no client JavaScript and cannot
  * fail on stage. This is demo beat four: the claim that the agent is not a
  * black box is only worth making if the proof is genuinely one interaction
  * away.
+ *
+ * The collapsed row answers "what am I paying, where did it come from, and am I
+ * using it?" and nothing else -- the reason sentence, the confidence grade and
+ * the full chain all live in the body. The verdict survives the collapse three
+ * ways over: the avatar's colour, the word beside the figure, and the badge
+ * chip. No row can read as a bare tracker line.
  */
-export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
+export function VerdictCard({
+  verdict,
+  sources,
+  ask = false,
+}: {
+  verdict: UsageVerdict;
+  /** Where this subscription's charges came from: "Demo", "Receipt", "Email". */
+  sources: string[];
+  /** Render the gap question in the body. True only for unanswered unknowns. */
+  ask?: boolean;
+}) {
   const theme = verdictTheme(verdict.verdict);
   const { evidence } = verdict;
+  const ended = verdict.status === "ended";
   const wastedIds = new Set(verdict.wastedCharges.map((c) => c.id));
 
   return (
-    <details className={`group rounded-xl border border-[var(--color-edge)] border-l-4 ${theme.border} bg-[var(--color-panel)] transition-colors hover:bg-[var(--color-panel-2)]`}>
-      <summary className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:p-5">
+    <details className="group overflow-hidden rounded-lg bg-[var(--color-panel)]">
+      <summary className="flex items-center gap-2.5 px-3.5 py-2.5">
         <svg
-          className="chev size-4 shrink-0 text-[var(--color-dim)]"
+          className="chev size-3 shrink-0 text-[var(--color-dim)]"
           viewBox="0 0 16 16"
           fill="none"
           aria-hidden="true"
         >
-          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M6 4l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
 
+        {/* Tinted by verdict rather than by merchant. Rupee Radar colours this
+            circle per-merchant because it has no verdict to show; here the
+            verdict is the point, and a second unrelated colour would compete
+            with it. */}
+        <span
+          aria-hidden="true"
+          className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[15px] font-bold ${theme.chipBg} ${theme.text}`}
+        >
+          {verdict.merchant.trim().charAt(0).toUpperCase()}
+        </span>
+
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-base font-semibold sm:text-lg">{verdict.merchant}</span>
-            <span className={`rounded-full ${theme.chipBg} ${theme.text} px-2.5 py-0.5 text-xs font-medium`}>
-              {verdictLabel(verdict.verdict)}
-            </span>
-            <span className="rounded-full bg-[var(--color-panel-2)] px-2.5 py-0.5 text-xs text-[var(--color-muted)]">
-              {confidenceLabel(verdict.confidence)}
-            </span>
-          </div>
-          <p className="mt-1.5 text-sm text-[var(--color-muted)]">{verdict.reason}</p>
+          <p className="flex items-center gap-2 truncate text-sm font-medium">
+            {verdict.merchant}
+            {ended && (
+              <span className="shrink-0 rounded bg-[var(--color-panel-2)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--color-muted)] uppercase">
+                Ended
+              </span>
+            )}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--color-muted)]">
+            {ended ? (
+              // Never "next 22 May" for a chain that stopped in March -- the
+              // projection is in the past and would read as a coming charge.
+              <>
+                <span>
+                  {shortDate(evidence.firstDate)} – {shortDate(evidence.lastDate)}
+                </span>
+                <span aria-hidden="true">·</span>
+                {sources.map((source) => (
+                  <SourceBadge key={source} label={source} />
+                ))}
+                <span aria-hidden="true">·</span>
+                <span>last charge {evidence.daysSinceLastCharge} days ago</span>
+              </>
+            ) : (
+              <>
+                <span>since {shortDate(evidence.firstDate)}</span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {evidence.chargeCount} {evidence.chargeCount === 1 ? "month" : "months"}
+                </span>
+                <span aria-hidden="true">·</span>
+                {sources.map((source) => (
+                  <SourceBadge key={source} label={source} />
+                ))}
+                <span aria-hidden="true">·</span>
+                <span>next {dayMonth(verdict.nextCharge)}</span>
+              </>
+            )}
+          </p>
+          {ended && (
+            <p className="mt-0.5 text-xs text-[var(--color-dim)]">
+              appears cancelled — not counted in savings
+            </p>
+          )}
         </div>
 
-        <div className="ml-auto text-right">
-          {verdict.zombieScore > 0 ? (
-            <>
-              <div className={`tnum text-xl font-semibold sm:text-2xl ${theme.text}`}>
-                {inr(verdict.zombieScore)}
-              </div>
-              <div className="text-xs text-[var(--color-dim)]">wasted so far</div>
-            </>
-          ) : verdict.potentialWaste > 0 ? (
-            <>
-              <div className="tnum text-lg font-medium text-[var(--color-muted)]">
-                {inr(verdict.potentialWaste)}
-              </div>
-              <div className="text-xs text-[var(--color-dim)]">at stake</div>
-            </>
-          ) : (
-            <>
-              <div className="tnum text-lg font-medium text-[var(--color-muted)]">
-                {inr(verdict.monthlyAmount)}
-              </div>
-              <div className="text-xs text-[var(--color-dim)]">per month</div>
-            </>
-          )}
+        <div className="shrink-0 text-right">
+          <p className="tnum text-sm font-medium">{inr(verdict.monthlyAmount)}/mo</p>
+          <p className="mt-0.5 text-xs">
+            {verdict.zombieScore > 0 ? (
+              <span className={theme.text}>
+                <span className="tnum font-medium">{inr(verdict.zombieScore)}</span> wasted
+              </span>
+            ) : verdict.potentialWaste > 0 ? (
+              <span className="text-[var(--color-unsure)]">
+                <span className="tnum">{inr(verdict.potentialWaste)}</span> at stake
+              </span>
+            ) : (
+              <span className={theme.text}>{verdictLabel(verdict.verdict)}</span>
+            )}
+          </p>
         </div>
       </summary>
 
-      <div className="border-t border-[var(--color-edge)] px-4 py-5 sm:px-5">
-        <h3 className="mb-4 text-xs font-semibold tracking-widest text-[var(--color-dim)] uppercase">
+      <div className="border-t border-[var(--color-edge)] px-3.5 py-4">
+        {/* The badges PLAN.md puts in the ranked list, and the reason sentence,
+            both demoted from the row to here. They are the argument; the row is
+            the orientation. */}
+        <div className="mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-md ${theme.chipBg} ${theme.text} px-2 py-0.5 text-[11px] font-medium`}
+            >
+              {verdictLabel(verdict.verdict)}
+            </span>
+            <span className="rounded-md bg-[var(--color-panel-2)] px-2 py-0.5 text-[11px] text-[var(--color-muted)]">
+              {confidenceLabel(verdict.confidence)}
+            </span>
+          </div>
+          <p className="mt-2 text-[13px] text-[var(--color-muted)]">{verdict.reason}</p>
+        </div>
+
+        {ask && verdict.question && (
+          <div className="mb-5">
+            <GapQuestion verdict={verdict} />
+          </div>
+        )}
+
+        <h3 className="mb-3 font-mono text-[11px] tracking-widest text-[var(--color-dim)] uppercase">
           Evidence chain
         </h3>
 
         <div className="grid gap-5 lg:grid-cols-2">
           {/* What we looked for, and what came back. */}
-          <section className="space-y-3 text-sm">
+          <section className="space-y-2.5 text-[13px]">
             {evidence.footprint === "transaction" ? (
               <>
                 <Row label="Looked for">
-                  <span className="text-[#e9edf5]">{evidence.usageLabel}</span>
+                  <span className="text-[var(--color-fg)]">{evidence.usageLabel}</span>
                   <span className="ml-2 text-[var(--color-dim)]">
                     matching {evidence.searchedPatterns.map((p) => `"${p}"`).join(", ")}
                   </span>
                 </Row>
                 <Row label="Window">
                   {shortDate(evidence.windowStart)} — {shortDate(evidence.windowEnd)}
-                  <span className="ml-2 text-[var(--color-dim)]">({evidence.lookbackDays} days)</span>
+                  <span className="ml-2 text-[var(--color-dim)]">
+                    ({evidence.lookbackDays} days)
+                  </span>
                 </Row>
                 <Row label="Found in window">
                   {evidence.matchesInWindow.length > 0 ? (
@@ -127,9 +214,26 @@ export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
               </div>
             )}
 
+            {ended ? (
+              <Row label="Status">
+                <span className="text-[var(--color-fg)]">Appears cancelled</span>
+                <span className="ml-2 text-[var(--color-dim)]">
+                  nothing billed for {evidence.daysSinceLastCharge} days, so no future
+                  savings are counted — the waste it already caused still is
+                </span>
+              </Row>
+            ) : (
+              <Row label="Next charge">
+                <span className="text-[var(--color-fg)]">{shortDate(verdict.nextCharge)}</span>
+                <span className="ml-2 text-[var(--color-dim)]">
+                  projected — last charge plus the usual gap
+                </span>
+              </Row>
+            )}
+
             {evidence.userAnswer && (
               <Row label="Your answer">
-                <span className="text-[#e9edf5]">
+                <span className="text-[var(--color-fg)]">
                   {evidence.userAnswer.used ? "Still using it" : "No longer using it"}
                 </span>
                 <span className="ml-2 text-[var(--color-dim)]">
@@ -141,15 +245,14 @@ export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
 
           {/* Every charge, and exactly which ones the figure is made of. */}
           <section>
-            <div className="mb-2 flex items-baseline justify-between text-sm">
+            <div className="mb-2 flex items-baseline justify-between text-[13px]">
               <span className="text-[var(--color-muted)]">
                 {evidence.chargeCount} charges since {shortDate(evidence.firstDate)}
-                <span className="text-[var(--color-dim)]">
-                  {" "}
-                  · {monthsLabel(evidence.spanDays)}
-                </span>
+                <span className="text-[var(--color-dim)]"> · {monthsLabel(evidence.spanDays)}</span>
               </span>
-              <span className="tnum text-[var(--color-muted)]">{inr(evidence.totalPaid)} total</span>
+              <span className="tnum text-[var(--color-muted)]">
+                {inr(evidence.totalPaid)} total
+              </span>
             </div>
             <ul className="divide-y divide-[var(--color-edge)] overflow-hidden rounded-lg border border-[var(--color-edge)]">
               {[...evidence.charges].reverse().map((charge) => {
@@ -157,18 +260,20 @@ export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
                 return (
                   <li
                     key={charge.id}
-                    className={`flex items-center gap-3 px-3 py-2 text-sm ${wasted ? "bg-[var(--color-zombie-dim)]/40" : ""}`}
+                    className={`flex items-center gap-3 px-3 py-1.5 text-[13px] ${wasted ? "bg-[var(--color-zombie-dim)]" : ""}`}
                   >
-                    <span className={`size-1.5 shrink-0 rounded-full ${wasted ? "bg-[var(--color-zombie)]" : "bg-[var(--color-edge)]"}`} />
+                    <span
+                      className={`size-1.5 shrink-0 rounded-full ${wasted ? "bg-[var(--color-zombie)]" : "bg-[var(--color-edge)]"}`}
+                    />
                     <span className="tnum w-24 shrink-0 text-[var(--color-muted)]">
                       {shortDate(charge.date)}
                     </span>
                     <span className="tnum w-20 shrink-0 text-right">{inr(charge.amount)}</span>
-                    <span className="truncate font-mono text-xs text-[var(--color-dim)]">
+                    <span className="truncate font-mono text-[11px] text-[var(--color-dim)]">
                       {charge.id}
                     </span>
                     {wasted && (
-                      <span className="ml-auto shrink-0 text-xs text-[var(--color-zombie)]">
+                      <span className="ml-auto shrink-0 text-[11px] text-[var(--color-zombie)]">
                         counted
                       </span>
                     )}
@@ -177,7 +282,7 @@ export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
               })}
             </ul>
             {verdict.zombieScore > 0 && (
-              <p className="mt-2 text-right text-sm text-[var(--color-muted)]">
+              <p className="mt-2 text-right text-[13px] text-[var(--color-muted)]">
                 <span className="tnum text-[var(--color-zombie)]">{inr(verdict.zombieScore)}</span>{" "}
                 = the {verdict.wastedCharges.length} highlighted{" "}
                 {verdict.wastedCharges.length === 1 ? "charge" : "charges"}
@@ -190,10 +295,22 @@ export function VerdictCard({ verdict }: { verdict: UsageVerdict }) {
   );
 }
 
+/**
+ * Where a charge chain came from. Deliberately plain: this is provenance, not a
+ * verdict, so it never borrows the verdict palette.
+ */
+export function SourceBadge({ label }: { label: string }) {
+  return (
+    <span className="rounded bg-[var(--color-panel-2)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
+      {label}
+    </span>
+  );
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
-      <span className="w-32 shrink-0 text-[var(--color-dim)]">{label}</span>
+      <span className="w-28 shrink-0 text-[var(--color-dim)]">{label}</span>
       <span className="min-w-0 flex-1">{children}</span>
     </div>
   );

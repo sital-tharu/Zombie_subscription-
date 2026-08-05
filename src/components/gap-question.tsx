@@ -12,6 +12,12 @@ import type { UsageVerdict } from "@/lib/types";
  * The amount at stake is shown next to the question on purpose. It makes the
  * cost of not knowing explicit, and it is the number that moves the headline
  * the moment the user answers.
+ *
+ * Rendered inside a verdict card's body rather than in a section of its own.
+ * The standalone section listed Netflix and KUKU FM a second time on a screen
+ * that already showed them, which is a real cost on a page whose job is to be
+ * scannable. The beat is not lost: the count and the amount at stake are
+ * promoted to the header band, above the fold, where the section never was.
  */
 export function GapQuestion({ verdict }: { verdict: UsageVerdict }) {
   const [pending, startTransition] = useTransition();
@@ -25,15 +31,13 @@ export function GapQuestion({ verdict }: { verdict: UsageVerdict }) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-xl border border-[var(--color-edge)] bg-[var(--color-panel)] p-4 sm:p-5">
+    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-[var(--color-unsure)]/30 bg-[var(--color-unsure-dim)] p-4">
       <div className="min-w-0 flex-1">
-        <div className="font-medium">{verdict.merchant}</div>
-        <p className="mt-1 text-sm text-[var(--color-muted)]">{verdict.question}</p>
-      </div>
-
-      <div className="text-right text-sm">
-        <div className="tnum text-[var(--color-unsure)]">{inr(verdict.potentialWaste)}</div>
-        <div className="text-xs text-[var(--color-dim)]">riding on the answer</div>
+        <p className="text-sm font-medium">{verdict.question}</p>
+        <p className="mt-1 text-xs text-[var(--color-dim)]">
+          <span className="tnum text-[var(--color-unsure)]">{inr(verdict.potentialWaste)}</span>{" "}
+          riding on the answer — until you tell us, it counts for nothing
+        </p>
       </div>
 
       <div className="flex gap-2">
@@ -41,7 +45,7 @@ export function GapQuestion({ verdict }: { verdict: UsageVerdict }) {
           type="button"
           disabled={pending}
           onClick={() => submit(true)}
-          className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-alive)] hover:text-[var(--color-alive)] disabled:opacity-50"
+          className="rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-alive)] hover:text-[var(--color-alive)] disabled:opacity-50"
         >
           {pending && chosen === true ? "Saving…" : "Yes, I use it"}
         </button>
@@ -49,7 +53,7 @@ export function GapQuestion({ verdict }: { verdict: UsageVerdict }) {
           type="button"
           disabled={pending}
           onClick={() => submit(false)}
-          className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-zombie)] hover:text-[var(--color-zombie)] disabled:opacity-50"
+          className="rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-zombie)] hover:text-[var(--color-zombie)] disabled:opacity-50"
         >
           {pending && chosen === false ? "Saving…" : "No, I don't"}
         </button>
