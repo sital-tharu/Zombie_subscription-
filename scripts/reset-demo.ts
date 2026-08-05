@@ -1,6 +1,7 @@
 /**
  * Put the demo back exactly as the README describes it:
  *   npm run demo:reset
+ *   npm run demo:reset -- --disconnect   (also drops the Gmail grant)
  *
  * Everything a live demo accumulates is state the next demo does not want. An
  * answered gap question stops the agent asking it, a ticked cancellation stops
@@ -56,11 +57,26 @@ async function main(): Promise<void> {
   }
   console.log(`Cancellations cleared: ${cancellations.length}`);
 
-  // 4. Proposals, so the plan panel opens on its first-run state.
+  // 4. Synced message headers. Layer 2b evidence outlives the transactions it
+  //    was synced alongside, so leaving it turns a "clean" demo into one where
+  //    a subscription is quietly proven used by mail nobody remembers importing.
+  const emails = await store.clearEmails();
+  console.log(`Synced emails cleared: ${emails}`);
+
+  // 5. Proposals, so the plan panel opens on its first-run state.
   const proposals = await store.clearProposals();
   console.log(`Proposals cleared: ${proposals}`);
 
-  // 5. Re-seed and verify.
+  // 6. The Gmail grant, only when asked. Reconnecting means a trip through
+  //    Google's consent screen, so a routine reset should not cost one -- but
+  //    after a scope change the stored token is for the OLD scope and syncing
+  //    will 403 until it is replaced.
+  if (process.argv.includes("--disconnect")) {
+    await store.clearGmailToken();
+    console.log("Gmail disconnected: reconnect from the dashboard.");
+  }
+
+  // 7. Re-seed and verify.
   const seeded = buildSeedTransactions();
   await store.replaceSeeded(seeded);
   console.log(`\nSeeded ${seeded.length} transactions.\n`);

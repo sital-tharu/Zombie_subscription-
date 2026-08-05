@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { connectGmailAction, syncGmailAction } from "@/app/actions";
+import {
+  connectGmailAction,
+  disconnectGmailAction,
+  syncGmailAction,
+} from "@/app/actions";
 
 /**
  * Layer 2b's one control.
@@ -158,6 +162,23 @@ export function GmailSync({
         className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)] disabled:opacity-50"
       >
         {pending ? "Reading inbox…" : `Sync "${label}"`}
+      </button>
+      {/* The way back to Connect. Without it a grant issued under an older
+          scope is permanent, and syncing just 403s forever. */}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          const key = protectedByKey ? (window.prompt("Owner passcode") ?? "") : "";
+          if (protectedByKey && key === "") return;
+          startTransition(async () => {
+            const outcome = await disconnectGmailAction(key);
+            if (outcome.error) setResult({ ok: false, message: outcome.error });
+          });
+        }}
+        className="text-xs text-[var(--color-dim)] underline underline-offset-4 hover:text-[var(--color-muted)] disabled:opacity-50"
+      >
+        Disconnect
       </button>
       {result ? (
         <span

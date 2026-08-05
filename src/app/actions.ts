@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { ownerKeyMatches } from "@/lib/auth";
-import { consentUrl, hasGmailCredentials } from "@/lib/gmail-auth";
+import { consentUrl, disconnectGmail, hasGmailCredentials } from "@/lib/gmail-auth";
 import {
   forgetAnswer,
   forgetCancellation,
@@ -127,6 +127,21 @@ export async function connectGmailAction(
   if (!host) return { error: "Could not determine this app's own address." };
   const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   return { url: consentUrl(`${proto}://${host}`) };
+}
+
+/**
+ * Drop the Gmail grant.
+ *
+ * Needed more often than it sounds: a stored refresh token carries whatever
+ * scope was granted when it was issued, so after a scope change syncing fails
+ * with a 403 and the only cure is to consent again. Without a way out of the
+ * connected state there is no way back to the Connect button.
+ */
+export async function disconnectGmailAction(key: string): Promise<{ error?: string }> {
+  if (!ownerKeyMatches(key)) return { error: "That passcode is not right." };
+  await disconnectGmail();
+  revalidatePath("/");
+  return {};
 }
 
 /**
