@@ -264,7 +264,29 @@ export async function getStore(): Promise<Store> {
             "because secrets/ is gitignored and never deployed.",
       );
     }
-    const base = storeMode() === "firestore" ? await firestoreStore() : localStore();
+    const mode = storeMode();
+    const base = mode === "firestore" ? await firestoreStore() : localStore();
+
+    /*
+     * Say which database this process is about to use, once.
+     *
+     * Firestore's free tier allows 50,000 document reads a day and one
+     * dashboard render costs roughly 110 of them, so a dev server pointed at
+     * the deployment's database drains it in an afternoon -- and the first
+     * symptom is the *public site* returning "out of quota" to visitors while
+     * nothing locally looks wrong. Nothing on screen distinguished "dev is
+     * safely local" from "dev is spending production's budget", which is
+     * exactly how that went unnoticed until the live site fell over.
+     *
+     * Once per process, not per call: a line on every render is noise, and
+     * noise is what gets tuned out.
+     */
+    console.log(
+      mode === "firestore"
+        ? "Store: firestore (shared with the deployment -- reads count against its daily quota)"
+        : "Store: local (./data/zombie.json)",
+    );
+
     // The local adapter reads a file that the OS already caches, so the wrapper
     // buys it little -- but applying it uniformly keeps the two modes behaving
     // identically, which is worth more than the saved microseconds.
