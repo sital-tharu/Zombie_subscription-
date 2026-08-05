@@ -25,7 +25,6 @@ export function GmailSync({
   protectedByKey,
   connected,
   label,
-  emailCount,
 }: {
   /** GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET are both present. */
   configured: boolean;
@@ -33,10 +32,20 @@ export function GmailSync({
   protectedByKey: boolean;
   connected: boolean;
   label: string;
-  emailCount: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  /*
+   * Every state renders the same shape: one button of this exact size in a
+   * nowrap row. The three states used to differ -- a block <details> when
+   * unconfigured, a long explanatory sentence when disconnected, a short one
+   * when connected -- so connecting or disconnecting visibly reflowed the row
+   * and shoved "+ Add a screenshot" around. Controls that move when their state
+   * changes are controls you have to re-find every time you use them.
+   */
+  const BUTTON =
+    "rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors hover:border-[var(--color-muted)] disabled:opacity-50";
 
   // Shown rather than hidden. An earlier version rendered nothing at all
   // without credentials, which left no way to tell an unbuilt feature from an
@@ -44,20 +53,11 @@ export function GmailSync({
   // vanish, and just as unhelpful.
   if (!configured) {
     return (
-      <details className="rounded-lg border border-dashed border-[var(--color-edge)]">
-        <summary className="flex items-center gap-2 px-3.5 py-2 text-sm text-[var(--color-muted)]">
-          <svg className="chev size-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M6 4l4 4-4 4"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Connect Gmail — needs setup
+      <details className="relative">
+        <summary className={`${BUTTON} cursor-pointer text-[var(--color-muted)]`}>
+          Connect Gmail
         </summary>
-        <div className="space-y-2 border-t border-[var(--color-edge)] px-3.5 py-3 text-[13px] text-[var(--color-muted)]">
+        <div className="absolute right-0 z-20 mt-2 w-[24rem] max-w-[85vw] space-y-2 rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] p-4 text-[13px] text-[var(--color-muted)] shadow-lg">
           <p>
             Two things at once. Bills in your labelled mail become transactions, with
             their amounts, listed alongside everything else. And order confirmations
@@ -128,29 +128,19 @@ export function GmailSync({
     };
 
     return (
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={connect}
-          disabled={pending}
-          className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)] disabled:opacity-50"
-        >
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={connect} disabled={pending} className={BUTTON}>
           {pending ? "Opening Google…" : "Connect Gmail"}
         </button>
-        {result && !result.ok ? (
+        {result && !result.ok && (
           <span className="text-xs text-[var(--color-zombie)]">{result.message}</span>
-        ) : (
-          <span className="text-xs text-[var(--color-dim)]">
-            Reads bills and confirmations from the &ldquo;{label}&rdquo; label only.
-            Nothing else in your mailbox is fetched.
-          </span>
         )}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex items-center gap-3">
       <button
         type="button"
         disabled={pending}
@@ -159,7 +149,7 @@ export function GmailSync({
             setResult(await syncGmailAction());
           })
         }
-        className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)] disabled:opacity-50"
+        className={BUTTON}
       >
         {pending ? "Reading inbox…" : `Sync "${label}"`}
       </button>
@@ -180,17 +170,11 @@ export function GmailSync({
       >
         Disconnect
       </button>
-      {result ? (
+      {result && (
         <span
           className={`text-xs ${result.ok ? "text-[var(--color-alive)]" : "text-[var(--color-zombie)]"}`}
         >
           {result.message}
-        </span>
-      ) : (
-        <span className="text-xs text-[var(--color-dim)]">
-          {emailCount > 0
-            ? `${emailCount} message${emailCount === 1 ? "" : "s"} read so far`
-            : `Apply the "${label}" label to your bills in Gmail, then sync`}
         </span>
       )}
     </div>

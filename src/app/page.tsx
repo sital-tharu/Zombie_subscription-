@@ -299,7 +299,7 @@ export default async function Home({
               {hasGeminiKey() && (
                 <Link
                   href="/upload"
-                  className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)]"
+                  className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors hover:border-[var(--color-muted)]"
                 >
                   + Add a screenshot
                 </Link>
@@ -309,7 +309,6 @@ export default async function Home({
                 protectedByKey={ownerKeyConfigured()}
                 connected={gmailConnected}
                 label={gmailLabel()}
-                emailCount={emails.length}
               />
             </div>
           </div>
