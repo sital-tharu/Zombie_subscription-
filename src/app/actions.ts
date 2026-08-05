@@ -8,11 +8,7 @@ import {
   recordAnswer,
   recordCancellations,
 } from "@/lib/ingest";
-import {
-  generateProposal,
-  setProposalDecision,
-  toggleChecklistItem,
-} from "@/lib/plan-service";
+import { generateProposal, setProposalDecision } from "@/lib/plan-service";
 
 /**
  * Server actions for the dashboard's own controls.
@@ -111,32 +107,30 @@ export async function generatePlanAction(): Promise<{ fallbackReason: string | n
 /**
  * The agent proposes; the human disposes.
  *
- * Accepting now asserts something concrete -- "I have cancelled these" -- and
- * records a date for each, which is what lets the dashboard stop counting them
- * and lets the panel say "you've saved" rather than "you would save". The claim
- * is not taken on trust: a charge dated after the cancellation puts the
- * subscription straight back into the run rate.
+ * Accepting commits to the plan and nothing more. It deliberately does NOT
+ * record any cancellation: the user has not cancelled anything yet, and a
+ * dashboard that stopped counting five subscriptions because a button was
+ * pressed would be asserting something nobody had done.
  */
-export async function decideAction(
-  id: string,
-  status: "accepted" | "rejected",
-  cancelKeys: readonly string[] = [],
-) {
+export async function decideAction(id: string, status: "accepted" | "rejected") {
   await setProposalDecision(id, status);
-  if (status === "accepted" && cancelKeys.length > 0) {
-    await recordCancellations(cancelKeys);
-  }
   revalidatePath("/");
 }
 
-/** "I didn't actually get round to cancelling that one." */
-export async function undoCancellationAction(merchantKey: string) {
-  await forgetCancellation(merchantKey);
+/**
+ * Mark one subscription cancelled, or take the mark back.
+ *
+ * This tick -- not Accept -- is the claim that the user went away and actually
+ * cancelled it, so this is where a cancellation date gets written. From here
+ * the subscription leaves the run rate and the Recurring count, today and every
+ * day after.
+ *
+ * Still checkable: `applyCancellation` re-tests the claim against the charge
+ * history on every render, and a charge dated after the tick overturns it.
+ */
+export async function toggleCancellationAction(merchantKey: string, cancelled: boolean) {
+  if (cancelled) await forgetCancellation(merchantKey);
+  else await recordCancellations([merchantKey]);
   revalidatePath("/");
 }
 
-/** Tick a cancellation off the checklist. Accepting produces work, not just a status. */
-export async function toggleChecklistAction(id: string, merchantKey: string) {
-  await toggleChecklistItem(id, merchantKey);
-  revalidatePath("/");
-}

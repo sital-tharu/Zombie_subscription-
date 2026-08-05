@@ -30,11 +30,6 @@ export interface StoredProposal {
   /** Whether Gemini wrote the prose or the deterministic fallback did. */
   generatedBy: "gemini" | "template";
   createdAt: string;
-  /**
-   * merchantKeys the user has ticked off the cancellation checklist. Optional
-   * so proposals written before the checklist existed still parse.
-   */
-  completedItems?: string[];
 }
 
 export interface Store {
@@ -56,7 +51,6 @@ export interface Store {
   saveProposal(proposal: StoredProposal): Promise<void>;
   latestProposal(): Promise<StoredProposal | null>;
   setProposalStatus(id: string, status: StoredProposal["status"]): Promise<void>;
-  setProposalChecklist(id: string, completedItems: readonly string[]): Promise<void>;
 }
 
 const TRANSACTIONS = "transactions";
@@ -293,12 +287,6 @@ async function firestoreStore(): Promise<Store> {
       await db.collection(PROPOSALS).doc(id).set({ status }, { merge: true });
     },
 
-    async setProposalChecklist(id, completedItems) {
-      await db
-        .collection(PROPOSALS)
-        .doc(id)
-        .set({ completedItems: [...completedItems] }, { merge: true });
-    },
   };
 }
 
@@ -430,12 +418,5 @@ function localStore(): Store {
       write(data);
     },
 
-    async setProposalChecklist(id, completedItems) {
-      const data = read();
-      data.proposals = data.proposals.map((p) =>
-        p.id === id ? { ...p, completedItems: [...completedItems] } : p,
-      );
-      write(data);
-    },
   };
 }

@@ -80,7 +80,17 @@ export default async function Home({
   const asOf = isCurrentMonth ? today : lastDayOfMonth(selectedMonth);
   const result = analyze(transactions, asOf, { answers, cancellations });
 
-  const flagged = result.verdicts.filter((v) => v.verdict === "likely-unused");
+  /*
+   * Flagged AND still being paid for. A cancelled subscription keeps its
+   * likely-unused verdict -- that judgement was correct and its wasted figure
+   * still stands -- but it must not be counted alongside "still on the table",
+   * which is money you could yet save. Counting it there would print
+   * "Rs 2,400 still on the table, across 2 subscriptions" when only one of them
+   * is still costing anything.
+   */
+  const flagged = result.verdicts.filter(
+    (v) => v.verdict === "likely-unused" && v.status === "active",
+  );
   const atStake = result.needsInput.reduce((sum, v) => sum + v.potentialWaste, 0);
 
   // Provenance is resolved here rather than in the engine. `TransactionLike`
@@ -97,7 +107,27 @@ export default async function Home({
     return [...found].sort();
   };
 
-  const endedCount = result.verdicts.filter((v) => v.status === "ended").length;
+  /*
+   * Three groups, and the tile below counts only the first.
+   *
+   * `status === "ended"` already covers both ways of not paying any more -- a
+   * cancellation the user declared, and a chain that simply went quiet -- so
+   * the tile and the engine cannot drift apart about what "active" means.
+   */
+  const activeVerdicts = result.verdicts.filter((v) => v.status === "active");
+  const finishedVerdicts = result.verdicts.filter((v) => v.status === "ended");
+  const cancelledCount = finishedVerdicts.filter((v) => v.cancellation).length;
+  const stoppedCount = finishedVerdicts.length - cancelledCount;
+
+  // What the user has actually saved by cancelling: only declarations that were
+  // not contradicted by a later charge. `status === "ended"` is exactly that
+  // test, so a still-billing subscription contributes nothing here.
+  const savedAnnual = round2(
+    12 *
+      finishedVerdicts
+        .filter((v) => v.cancellation)
+        .reduce((sum, v) => sum + v.monthlyAmount, 0),
+  );
 
   // Every transaction in the month, chained or not. The only place in the
   // product where a raw row is visible, and the answer to "did my upload work".
@@ -117,7 +147,6 @@ export default async function Home({
       .reduce((sum, txn) => sum + txn.total, 0),
   );
   const totalSpend = round2(result.monthlyRunRate + paymentsMade);
-  const activeCount = result.subscriptions.length - endedCount;
   const monthTotal = round2(monthTransactions.reduce((sum, txn) => sum + txn.total, 0));
 
   // Ten visible, the rest a click away. A month of real GPay history is
@@ -262,22 +291,27 @@ export default async function Home({
                 </span>{" "}
                 subscriptions due
                 <span className="mx-1.5 text-[var(--color-dim)]">·</span>
-                <span className="tnum text-[var(--color-fg)]">{inr(paymentsMade)}</span> payments
-                made
+                <span className="tnum text-[var(--color-fg)]">{inr(paymentsMade)}</span> daily
+                expenses
               </p>
             </div>
             <div className="flex flex-col justify-center rounded-xl bg-[var(--color-panel)] p-4">
               <p className="text-[13px] text-[var(--color-muted)]">Recurring</p>
               <p className="mt-1 font-mono text-3xl font-medium tracking-tight">
-                <span className="tnum">{result.subscriptions.length}</span>
+                <span className="tnum">{activeVerdicts.length}</span>
                 <span className="ml-2 text-[13px] font-normal text-[var(--color-muted)]">
-                  {result.subscriptions.length === 1 ? "subscription" : "subscriptions"}
+                  {activeVerdicts.length === 1 ? "subscription" : "subscriptions"}
                 </span>
               </p>
               <p className="mt-1.5 text-xs text-[var(--color-muted)]">
-                {activeCount} active
-                {endedCount > 0 && ` · ${endedCount} ended`}
-                {result.needsInput.length > 0 && ` · ${result.needsInput.length} unjudged`}
+                {[
+                  cancelledCount > 0 && `${cancelledCount} cancelled`,
+                  stoppedCount > 0 && `${stoppedCount} stopped`,
+                  result.needsInput.length > 0 &&
+                    `${result.needsInput.length} we can't judge`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "all judged"}
               </p>
             </div>
           </div>
@@ -295,16 +329,27 @@ export default async function Home({
               </p>
             </div>
             <p className="text-xs text-[var(--color-muted)]">
+              {/* Saved sits next to the waste it cancels out, so the before and
+                  after read as one sentence rather than two tiles. */}
+              {savedAnnual > 0 && (
+                <>
+                  <span className="tnum font-medium text-[var(--color-alive)]">
+                    {inr(savedAnnual)}
+                  </span>{" "}
+                  a year saved
+                  <span className="mx-1.5 text-[var(--color-dim)]">·</span>
+                </>
+              )}
               {flagged.length > 0 ? (
                 <>
-                  across {flagged.length}{" "}
-                  {flagged.length === 1 ? "subscription" : "subscriptions"}
-                  <span className="mx-1.5 text-[var(--color-dim)]">·</span>
                   <span className="tnum text-[var(--color-fg)]">
                     {inr(result.annualSavings)}
                   </span>{" "}
-                  a year if you cancel them
+                  still on the table, across {flagged.length}{" "}
+                  {flagged.length === 1 ? "subscription" : "subscriptions"}
                 </>
+              ) : savedAnnual > 0 ? (
+                "nothing left on the table"
               ) : (
                 "nothing flagged yet"
               )}
@@ -339,12 +384,51 @@ export default async function Home({
               <span className="text-xs text-[var(--color-dim)]">ranked by money wasted</span>
             </div>
             <ul className="mt-2 flex flex-col gap-2">
-              {result.verdicts.map((verdict) => (
+              {activeVerdicts.map((verdict) => (
                 <li key={verdict.merchantKey}>
                   <VerdictCard verdict={verdict} sources={sourcesFor(verdict)} />
                 </li>
               ))}
             </ul>
+
+            {/* Everything you have stopped paying for, out of the main list so
+                it agrees with the Recurring count, but never deleted -- the
+                money these already cost is still true and still traceable. */}
+            {finishedVerdicts.length > 0 && (
+              <details className="mt-2 overflow-hidden rounded-lg bg-[var(--color-panel)]">
+                <summary className="flex items-center gap-2 px-3.5 py-2.5 text-[13px] text-[var(--color-muted)]">
+                  <svg
+                    className="chev size-3 shrink-0"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6 4l4 4-4 4"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  {cancelledCount > 0 && stoppedCount > 0
+                    ? `Cancelled and stopped (${finishedVerdicts.length})`
+                    : cancelledCount > 0
+                      ? `Cancelled (${cancelledCount})`
+                      : `Stopped billing (${stoppedCount})`}
+                  <span className="text-[var(--color-dim)]">
+                    — no longer counted in your monthly total
+                  </span>
+                </summary>
+                <ul className="flex flex-col gap-2 border-t border-[var(--color-edge)] p-2">
+                  {finishedVerdicts.map((verdict) => (
+                    <li key={verdict.merchantKey}>
+                      <VerdictCard verdict={verdict} sources={sourcesFor(verdict)} />
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </section>
 
           {/*
