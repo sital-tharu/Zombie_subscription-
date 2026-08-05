@@ -25,10 +25,21 @@
 import { getStore } from "./store";
 
 /**
- * Headers only. Changing this to gmail.readonly would grant the whole mailbox
- * including bodies, and would make PRD section 12 untrue.
+ * Bodies as well as headers.
+ *
+ * `gmail.metadata` would be the narrower grant, and was what this used at
+ * first. It cannot work for intake: a bill's AMOUNT lives in the message body,
+ * and metadata grants headers only. Reading "you were charged Rs 649" is the
+ * whole point of pulling receipts in, so the scope has to widen or the feature
+ * does not exist.
+ *
+ * What still limits it is the label filter in gmail.ts -- only messages the
+ * user has tagged are ever fetched. That is a promise this code keeps, not one
+ * Google enforces, and the README and PRD say so rather than implying the grant
+ * itself is label-scoped. Gmail offers no such scope; claiming otherwise would
+ * be the kind of detail that unravels under one question.
  */
-const SCOPE = "https://www.googleapis.com/auth/gmail.metadata";
+const SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const REDIRECT_PATH = "/api/gmail/callback";
 
 function clientCreds(): { clientId: string; clientSecret: string } {

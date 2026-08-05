@@ -150,11 +150,14 @@ export async function syncGmailAction(): Promise<{ ok: boolean; message: string 
       };
     }
     revalidatePath("/");
-    const skipped = result.skipped > 0 ? `, ${result.skipped} undated and skipped` : "";
-    return {
-      ok: true,
-      message: `Read ${result.stored} message${result.stored === 1 ? "" : "s"} from "${result.label}"${skipped}.`,
-    };
+    const parts = [
+      `Read ${result.stored} message${result.stored === 1 ? "" : "s"} from "${result.label}"`,
+      result.billsFound > 0
+        ? `${result.billsFound} bill${result.billsFound === 1 ? "" : "s"} added to your transactions`
+        : "no bills found in them",
+      result.skipped > 0 ? `${result.skipped} unreadable` : null,
+    ].filter(Boolean);
+    return { ok: true, message: `${parts.join(" · ")}.` };
   } catch (error) {
     return {
       ok: false,

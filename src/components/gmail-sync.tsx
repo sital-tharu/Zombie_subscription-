@@ -55,9 +55,11 @@ export function GmailSync({
         </summary>
         <div className="space-y-2 border-t border-[var(--color-edge)] px-3.5 py-3 text-[13px] text-[var(--color-muted)]">
           <p>
-            Reading order confirmations catches usage this app never sees — a Swiggy
-            order paid by card, an Amazon purchase on a saved wallet. Without it, that
-            spending looks like silence, and silence is what gets flagged as a zombie.
+            Two things at once. Bills in your labelled mail become transactions, with
+            their amounts, listed alongside everything else. And order confirmations
+            count as proof you used a service — catching spending this app never sees,
+            like a Swiggy order paid by card, which would otherwise look like silence.
+            Silence is what gets flagged as a zombie.
           </p>
           <p>Two one-off steps, both yours to do:</p>
           <ol className="list-decimal space-y-1 pl-5">
@@ -92,9 +94,11 @@ export function GmailSync({
             <div>GMAIL_LABEL={label}</div>
           </div>
           <p className="text-[var(--color-dim)]">
-            The app asks for the <span className="font-mono">gmail.metadata</span> scope:
-            sender, subject and date only. Message contents are not merely unread — Google
-            does not grant them.
+            The app asks for the <span className="font-mono">gmail.readonly</span> scope,
+            because a bill&apos;s amount is in the message body and no narrower scope can
+            reach it. Only mail carrying your label is ever fetched — Gmail has no
+            label-scoped permission, so that limit is one this code keeps rather than one
+            Google enforces.
           </p>
         </div>
       </details>
@@ -133,8 +137,8 @@ export function GmailSync({
           <span className="text-xs text-[var(--color-zombie)]">{result.message}</span>
         ) : (
           <span className="text-xs text-[var(--color-dim)]">
-            Reads only message headers, only from a label you choose. Never message
-            contents — Google does not grant them.
+            Reads bills and confirmations from the &ldquo;{label}&rdquo; label only.
+            Nothing else in your mailbox is fetched.
           </span>
         )}
       </div>
@@ -165,7 +169,7 @@ export function GmailSync({
         <span className="text-xs text-[var(--color-dim)]">
           {emailCount > 0
             ? `${emailCount} message${emailCount === 1 ? "" : "s"} read so far`
-            : `Label mail "${label}" in Gmail, then sync`}
+            : `Apply the "${label}" label to your bills in Gmail, then sync`}
         </span>
       )}
     </div>

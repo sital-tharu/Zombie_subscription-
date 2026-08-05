@@ -101,7 +101,19 @@ export async function extractTransactions(
     },
   });
 
-  const raw = response.text;
+  return validate(response.text, asOf);
+}
+
+/**
+ * Parse, validate, and drop anything dated after `asOf`.
+ *
+ * Shared by both intake paths on purpose. A screenshot and a receipt email are
+ * read by the same model under the same schema, so they must be trusted to
+ * exactly the same degree -- a second, laxer validation for email would be a
+ * quiet hole in the one boundary that keeps unverified data out of the charge
+ * chains.
+ */
+function validate(raw: string | undefined, asOf: string): ExtractedTransaction[] {
   if (!raw) throw new Error("Gemini returned an empty response.");
 
   let parsed: unknown;
@@ -120,4 +132,59 @@ export async function extractTransactions(
   // here keeps it out of the charge chains rather than letting it quietly
   // extend one.
   return result.data.transactions.filter((txn) => txn.date <= asOf);
+}
+
+/**
+ * The same job, done on the text of a receipt email.
+ *
+ * Deliberately narrow: ONE payment per message, or none. A billing email
+ * announces a single charge, and a model invited to return a list will happily
+ * turn an order summary's line items into four separate transactions -- which
+ * Layer 1 would then try to chain.
+ *
+ * Marketing mail gets labelled by accident all the time, so returning nothing
+ * has to be a normal, expected outcome rather than an error.
+ */
+export async function extractTransactionsFromText(
+  body: string,
+  receivedOn: string,
+  asOf: string = todayIso(),
+): Promise<ExtractedTransaction[]> {
+  const prompt = [
+    "This is the text of one email. Decide whether it is telling the user they",
+    "were CHARGED a specific amount -- a receipt, invoice, payment confirmation",
+    "or subscription renewal notice.",
+    "",
+    "If it is, return exactly ONE transaction:",
+    "- merchant: the service being paid for, as the email names it. Keep it",
+    "  verbatim; do not expand abbreviations or guess a parent brand.",
+    "- total: the amount actually charged, as a positive number, no symbol.",
+    "  If several figures appear, take the one the customer paid -- not a",
+    "  subtotal, not tax, not a discount, not a future price.",
+    "- date: the date of the charge as YYYY-MM-DD. If the text does not state",
+    `  one, use ${receivedOn}, the date the email arrived.`,
+    "",
+    "Return an EMPTY list if it is anything else: a delivery update, an order",
+    "confirmation with no payment taken, a promotion, a reminder to pay, a",
+    "newsletter, or a security alert. Returning nothing is a normal outcome and",
+    "is far better than guessing.",
+    "",
+    "Amounts are Indian rupees unless the text says otherwise. Never invent a",
+    "figure that does not appear in the text.",
+    "",
+    "--- EMAIL TEXT ---",
+    body.slice(0, 12_000),
+  ].join("\n");
+
+  const response = await getGeminiClient().models.generateContent({
+    model: GEMINI_MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseJsonSchema: RESPONSE_SCHEMA,
+      temperature: 0,
+    },
+  });
+
+  return validate(response.text, asOf);
 }
