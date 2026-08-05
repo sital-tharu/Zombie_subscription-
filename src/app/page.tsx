@@ -6,7 +6,6 @@ import { analyze, LOOKBACK_DAYS } from "@/lib/correlate";
 import { round2, todayIso } from "@/lib/dates";
 import {
   addMonths,
-  dayMonth,
   inr,
   isMonthKey,
   lastDayOfMonth,
@@ -29,7 +28,6 @@ import {
   AMOUNT_TOLERANCE,
   CADENCE_DAYS,
   CADENCE_TOLERANCE_DAYS,
-  detectCandidates,
   MIN_OCCURRENCES,
 } from "@/lib/subscriptions";
 import type { StoredTransaction, UsageVerdict } from "@/lib/types";
@@ -98,21 +96,6 @@ export default async function Home({
     return [...found].sort();
   };
 
-  /*
-   * Merchants that charged you but did not qualify, filtered to things YOU put
-   * in. The seed carries ~21 background merchants; listing all of them would
-   * bury the one row this section exists to show. Source is invisible to the
-   * engine by design, so the filter lives here rather than in detectCandidates.
-   */
-  const watchlist = detectCandidates(transactions, asOf)
-    .filter((candidate) =>
-      candidate.chargeIds.some((id) => {
-        const txn = byId.get(id);
-        return txn !== undefined && sourceLabel(txn.source, txn.seeded) !== "Demo";
-      }),
-    )
-    .slice(0, 8);
-
   const endedCount = result.verdicts.filter((v) => v.status === "ended").length;
 
   // Every transaction in the month, chained or not. The only place in the
@@ -165,6 +148,10 @@ export default async function Home({
       {
         name: v.merchant,
         monthlyAmount: v.monthlyAmount,
+        // Carried so each plan item can show its own money without the panel
+        // re-deriving anything. Both come straight off the engine's verdict.
+        wasted: v.zombieScore,
+        atStake: v.potentialWaste,
         ...cancelGuidance(v.merchantKey),
       },
     ]),
@@ -463,49 +450,6 @@ export default async function Home({
               </div>
             )}
           </section>
-
-          {/* The answer to "I uploaded a screenshot and nothing happened". */}
-          {watchlist.length > 0 && (
-            <section className="mt-8">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="text-[13px] text-[var(--color-muted)]">
-                  Not yet a subscription
-                </h2>
-                <span className="text-xs text-[var(--color-dim)]">
-                  {MIN_OCCURRENCES} charges needed to qualify
-                </span>
-              </div>
-              <ul className="mt-2 flex flex-col gap-2">
-                {watchlist.map((candidate) => (
-                  <li
-                    key={candidate.merchantKey}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-[var(--color-edge)] px-3.5 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{candidate.merchant}</p>
-                      <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-                        {candidate.occurrences}{" "}
-                        {candidate.occurrences === 1 ? "charge" : "charges"} · last{" "}
-                        {shortDate(candidate.lastDate)}
-                        <span className="mx-1.5 text-[var(--color-dim)]">·</span>
-                        {candidate.expectedNext
-                          ? `1 more and it qualifies, next expected ~${dayMonth(candidate.expectedNext)}`
-                          : `needs ${candidate.needs} more monthly ${candidate.needs === 1 ? "charge" : "charges"}`}
-                      </p>
-                    </div>
-                    <p className="tnum shrink-0 font-mono text-sm">
-                      {inr(candidate.latestAmount)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-[var(--color-dim)]">
-                No verdict is offered on these, and none of them counts toward any figure
-                above. With fewer than {MIN_OCCURRENCES} charges there is no cadence to
-                judge — so we say nothing rather than guess.
-              </p>
-            </section>
-          )}
 
           {/* Your plan */}
           <section className="mt-8">

@@ -8,7 +8,7 @@
  */
 import { addDaysIso, daysBetween, isIsoDate, median, round2, todayIso } from "./dates";
 import { displayNameOf, merchantKeyOf } from "./merchant-map";
-import type { Candidate, ChargeRef, Subscription, TransactionLike } from "./types";
+import type { ChargeRef, Subscription, TransactionLike } from "./types";
 
 /** Gaps of 25-35 days count as monthly. */
 export const CADENCE_DAYS = 30;
@@ -175,82 +175,6 @@ export function detectSubscriptions(
   return subscriptions.sort(
     (a, b) =>
       b.monthlyAmount - a.monthlyAmount ||
-      (a.merchantKey < b.merchantKey ? -1 : a.merchantKey > b.merchantKey ? 1 : 0),
-  );
-}
-
-/**
- * Merchants that charged you but did not qualify as a subscription.
- *
- * This exists because the product was silently swallowing uploads. A one-off
- * recharge is parsed, validated and stored correctly, and then -- having no
- * chain, no verdict and no place in a chain-derived charges table -- appears
- * nowhere at all. The user cannot distinguish "the screenshot was misread" from
- * "this is not a subscription yet", and both look like a green toast and an
- * unchanged page.
- *
- * Strictly 1 or 2 occurrences, which partitions cleanly against
- * `detectSubscriptions`: three is the floor there, so nothing can appear in
- * both lists. Merchants with three or more charges that fail to chain are
- * deliberately NOT candidates -- that is ordinary shopping (seven Swiggy orders
- * at seven different amounts), not a subscription in the making, and listing it
- * would bury the signal this section exists to surface.
- */
-export function detectCandidates(
-  txns: readonly TransactionLike[],
-  asOf?: string,
-): Candidate[] {
-  const asOfDate = resolveAsOf(asOf);
-  const usable = withinHorizon(txns, asOfDate);
-
-  const byMerchant = new Map<string, TransactionLike[]>();
-  for (const txn of usable) {
-    const key = merchantKeyOf(txn.merchant);
-    const group = byMerchant.get(key);
-    if (group) group.push(txn);
-    else byMerchant.set(key, [txn]);
-  }
-
-  const candidates: Candidate[] = [];
-
-  for (const [merchantKey, group] of byMerchant) {
-    if (group.length >= MIN_OCCURRENCES) continue;
-    group.sort(byDateDesc);
-    const latest = group[0];
-
-    // Only claim "one more and it qualifies" when that is actually true: the
-    // two charges must already satisfy BOTH chain rules, so a third at the same
-    // cadence and amount really would form a subscription. A pair 60 days apart
-    // gets no projected date rather than a wrong one.
-    let expectedNext: string | null = null;
-    if (group.length === 2) {
-      const [newer, older] = group;
-      const gap = daysBetween(older.date, newer.date);
-      const cadenceOk =
-        gap >= CADENCE_DAYS - CADENCE_TOLERANCE_DAYS &&
-        gap <= CADENCE_DAYS + CADENCE_TOLERANCE_DAYS;
-      const amountOk =
-        Math.abs(newer.total - older.total) / older.total <= AMOUNT_TOLERANCE;
-      if (cadenceOk && amountOk) expectedNext = addDaysIso(newer.date, gap);
-    }
-
-    candidates.push({
-      merchantKey,
-      merchant: displayNameOf(latest.merchant),
-      occurrences: group.length,
-      latestAmount: latest.total,
-      lastDate: latest.date,
-      // Ascending, mirroring Subscription.chargeIds.
-      chargeIds: [...group].reverse().map((t) => t.id),
-      needs: MIN_OCCURRENCES - group.length,
-      expectedNext,
-    });
-  }
-
-  return candidates.sort(
-    (a, b) =>
-      b.occurrences - a.occurrences ||
-      b.latestAmount - a.latestAmount ||
       (a.merchantKey < b.merchantKey ? -1 : a.merchantKey > b.merchantKey ? 1 : 0),
   );
 }

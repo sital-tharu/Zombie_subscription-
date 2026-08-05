@@ -5,30 +5,34 @@ import { decideAction, generatePlanAction, toggleChecklistAction } from "@/app/a
 import { inr } from "@/lib/format";
 import type { StoredProposal } from "@/lib/store";
 
-const ACTION_STYLE: Record<string, string> = {
-  cancel: "text-[var(--color-zombie)] bg-[var(--color-zombie-dim)]",
-  downgrade: "text-[var(--color-unsure)] bg-[var(--color-unsure-dim)]",
-  check: "text-[var(--color-unsure)] bg-[var(--color-unsure-dim)]",
-  keep: "text-[var(--color-alive)] bg-[var(--color-alive-dim)]",
-};
-
 export interface ServiceInfo {
   name: string;
   monthlyAmount: number;
+  /** zombieScore -- what this subscription has already cost with nothing to show. */
+  wasted: number;
+  /** potentialWaste -- what is riding on an unanswered question. */
+  atStake: number;
   hint: string;
   url?: string;
 }
 
 /**
- * Demo beat six, and the answer to "so what does accepting actually do?"
+ * Demo beat six: the plan, and what accepting it is actually worth.
  *
- * Accepting used to write a status and produce nothing. Now it reveals a
- * cancellation checklist: what to cancel, what each one stops, where to do it,
- * and how much is still on the table. The agent still cancels nothing — that is
- * a permanent product principle — but it no longer leaves the user at a dead end.
+ * Structured as numbered steps rather than one flat list. The flat version put
+ * "cancel Amazon Prime" and "keep Swiggy One" side by side with the same weight,
+ * behind bare lowercase tags, and hid every cancellation instruction until after
+ * the Accept button had been pressed -- so the one screen whose job is "what do
+ * I do now" answered it last. Now the work comes first, priced per item, with
+ * the instructions visible before you commit to anything.
  *
- * Every figure here comes from the engine via the stored proposal. Gemini wrote
- * the prose and nothing else.
+ * Accepting still changes something real: the same cards become tickable, and
+ * the savings figure only counts what has actually been ticked. The agent
+ * cancels nothing -- that is a permanent product principle -- but it no longer
+ * leaves the user at a dead end.
+ *
+ * Every figure comes from the engine via the stored proposal. Gemini wrote the
+ * opening paragraph and nothing else.
  */
 export function PlanPanel({
   proposal,
@@ -71,154 +75,228 @@ export function PlanPanel({
     );
   }
 
-  const cancels = proposal.items.filter((i) => i.action === "cancel");
+  // "downgrade" joins the cancel step: both are money you stop spending, and
+  // suggestedAction never emits it today, so a separate step would be an empty
+  // heading waiting for a feature.
+  const toCancel = proposal.items.filter(
+    (i) => i.action === "cancel" || i.action === "downgrade",
+  );
+  const toDecide = proposal.items.filter((i) => i.action === "check");
+  const toKeep = proposal.items.filter((i) => i.action === "keep");
+
+  const accepted = proposal.status === "accepted";
   const done = new Set(proposal.completedItems ?? []);
-  const securedMonthly = cancels
-    .filter((i) => done.has(i.merchantKey))
-    .reduce((sum, i) => sum + (services[i.merchantKey]?.monthlyAmount ?? 0), 0);
-  const securedAnnual = securedMonthly * 12;
-  // Clamped: a service missing from `services` contributes 0 to securedAnnual
-  // while still counting toward annualSavings, which could otherwise render a
-  // negative "still on the table".
+  const securedAnnual =
+    toCancel
+      .filter((i) => done.has(i.merchantKey))
+      .reduce((sum, i) => sum + (services[i.merchantKey]?.monthlyAmount ?? 0), 0) * 12;
+  // Clamped: a service missing from `services` contributes nothing to
+  // securedAnnual while still counting toward annualSavings, which would
+  // otherwise render a negative "still on the table".
   const remainingAnnual = Math.max(0, proposal.annualSavings - securedAnnual);
+  const atStakeTotal = toDecide.reduce(
+    (sum, i) => sum + (services[i.merchantKey]?.atStake ?? 0),
+    0,
+  );
+
+  // Numbered in the order they are shown, skipping any step with nothing in it,
+  // so a user with no zombies never reads "step 2" as their first instruction.
+  let step = 0;
 
   return (
     <div className="rounded-xl border border-[var(--color-edge)] bg-[var(--color-panel)] p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <p className="max-w-2xl flex-1 text-[15px] leading-relaxed">{proposal.planText}</p>
+        <p className="max-w-xl flex-1 text-[15px] leading-relaxed">{proposal.planText}</p>
         <div className="text-right">
           <div className="tnum text-2xl font-semibold text-[var(--color-alive)]">
             {inr(proposal.annualSavings)}
           </div>
-          <div className="text-xs text-[var(--color-dim)]">a year if accepted</div>
+          <div className="text-xs text-[var(--color-dim)]">a year on the table</div>
         </div>
       </div>
 
-      <ul className="mt-5 space-y-2">
-        {proposal.items.map((item) => (
-          <li key={item.merchantKey} className="flex gap-3 text-sm">
-            <span
-              className={`mt-0.5 h-fit shrink-0 rounded px-2 py-0.5 text-xs font-medium ${ACTION_STYLE[item.action] ?? ""}`}
-            >
-              {item.action}
-            </span>
-            <span className="min-w-0">
-              <span className="font-medium">
-                {services[item.merchantKey]?.name ?? item.merchantKey}
-              </span>
-              <span className="text-[var(--color-muted)]"> — {item.rationale}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-
-      {proposal.status === "accepted" && cancels.length > 0 && (
-        <div className="mt-6 border-t border-[var(--color-edge)] pt-5">
-          {/*
-            What accepting is actually worth, counted only as items are ticked.
-            Announcing the full figure the moment Accept is pressed would be the
-            one kind of lie this product exists to avoid: nothing is saved until
-            the user has genuinely cancelled something.
-          */}
-          <div className="mb-4 rounded-lg bg-[var(--color-alive-dim)] px-4 py-3">
-            {done.size === 0 ? (
-              <p className="text-sm text-[var(--color-muted)]">
-                Nothing saved yet — tick each one off as you actually cancel it. That is{" "}
-                <span className="tnum font-medium text-[var(--color-alive)]">
-                  {inr(proposal.annualSavings)}
-                </span>{" "}
-                a year once the list is clear.
-              </p>
-            ) : (
-              <>
-                <p className="tnum text-xl font-semibold text-[var(--color-alive)]">
-                  You&apos;ve saved {inr(securedAnnual)} a year
-                </p>
-                <p className="mt-1 text-xs text-[var(--color-muted)]">
-                  {remainingAnnual > 0 ? (
-                    <>
-                      <span className="tnum">{inr(remainingAnnual)}</span> still on the table
-                      — {cancels.length - done.size} left to cancel.
-                    </>
-                  ) : (
-                    "Every subscription on this list is cancelled. Nothing left on the table."
-                  )}
-                </p>
-              </>
-            )}
-          </div>
-
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-sm font-semibold">Your cancellation checklist</h3>
-            <span className="text-sm text-[var(--color-muted)]">
-              <span className="tnum">
-                {done.size} of {cancels.length}
+      {accepted && toCancel.length > 0 && (
+        <div className="mt-5 rounded-lg bg-[var(--color-alive-dim)] px-4 py-3">
+          {done.size === 0 ? (
+            <p className="text-sm text-[var(--color-muted)]">
+              Nothing saved yet — tick each one off as you actually cancel it. That is{" "}
+              <span className="tnum font-medium text-[var(--color-alive)]">
+                {inr(proposal.annualSavings)}
               </span>{" "}
-              done
-            </span>
-          </div>
+              a year once the list is clear.
+            </p>
+          ) : (
+            <>
+              <p className="tnum text-xl font-semibold text-[var(--color-alive)]">
+                You&apos;ve saved {inr(securedAnnual)} a year
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                {remainingAnnual > 0 ? (
+                  <>
+                    <span className="tnum">{inr(remainingAnnual)}</span> still on the table —{" "}
+                    {toCancel.length - done.size} left to cancel.
+                  </>
+                ) : (
+                  "Every subscription on this list is cancelled. Nothing left on the table."
+                )}
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
-          <ul className="space-y-2">
-            {cancels.map((item) => {
+      {toCancel.length > 0 && (
+        <Step
+          n={++step}
+          title={`Cancel ${toCancel.length === 1 ? "this one" : `these ${toCancel.length}`}`}
+          note={`saves ${inr(proposal.annualSavings)} a year`}
+          tone="text-[var(--color-zombie)]"
+        >
+          <div className="flex flex-col gap-2">
+            {toCancel.map((item) => {
               const service = services[item.merchantKey];
               const ticked = done.has(item.merchantKey);
               return (
-                <li
+                <div
                   key={item.merchantKey}
-                  className={`flex gap-3 rounded-lg border border-[var(--color-edge)] p-3 transition-opacity ${ticked ? "opacity-55" : ""}`}
+                  className={`rounded-lg border border-[var(--color-edge)] p-3 transition-opacity ${ticked ? "opacity-55" : ""}`}
                 >
-                  <button
-                    type="button"
-                    disabled={pending}
-                    aria-pressed={ticked}
-                    onClick={() =>
-                      startTransition(async () => {
-                        await toggleChecklistAction(proposal.id, item.merchantKey);
-                      })
-                    }
-                    className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-50 ${
-                      ticked
-                        ? "border-[var(--color-alive)] bg-[var(--color-alive)] text-[var(--color-ink)]"
-                        : "border-[var(--color-edge)] hover:border-[var(--color-muted)]"
-                    }`}
-                  >
-                    {ticked && (
-                      <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
-                        <path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </button>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className={`font-medium ${ticked ? "line-through" : ""}`}>
-                        {service?.name ?? item.merchantKey}
-                      </span>
-                      <span className="tnum text-sm text-[var(--color-muted)]">
-                        stops {inr(service?.monthlyAmount ?? 0)}/month
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-[var(--color-muted)]">{service?.hint}</p>
-                    {service?.url && (
-                      <a
-                        href={service.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="mt-1 inline-block text-sm text-[var(--color-alive)] underline underline-offset-4"
+                  <div className="flex items-start gap-3">
+                    {accepted && (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        aria-pressed={ticked}
+                        aria-label={`Mark ${service?.name ?? item.merchantKey} cancelled`}
+                        onClick={() =>
+                          startTransition(async () => {
+                            await toggleChecklistAction(proposal.id, item.merchantKey);
+                          })
+                        }
+                        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-50 ${
+                          ticked
+                            ? "border-[var(--color-alive)] bg-[var(--color-alive)] text-[var(--color-ink)]"
+                            : "border-[var(--color-edge)] hover:border-[var(--color-muted)]"
+                        }`}
                       >
-                        Open the cancellation page →
-                      </a>
+                        {ticked && (
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="size-3.5"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M3 8.5l3.5 3.5L13 5"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </button>
                     )}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                        <span className={`font-medium ${ticked ? "line-through" : ""}`}>
+                          {service?.name ?? item.merchantKey}
+                        </span>
+                        <span className="text-sm">
+                          <span className="tnum text-[var(--color-muted)]">
+                            {inr(service?.monthlyAmount ?? 0)}/mo
+                          </span>
+                          {(service?.wasted ?? 0) > 0 && (
+                            <>
+                              <span className="mx-1.5 text-[var(--color-dim)]">·</span>
+                              <span className="tnum text-[var(--color-zombie)]">
+                                {inr(service!.wasted)} wasted
+                              </span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[13px] text-[var(--color-muted)]">
+                        {item.rationale}
+                      </p>
+                      {service?.hint && (
+                        <p className="mt-1.5 text-[13px] text-[var(--color-dim)]">
+                          {service.hint}
+                        </p>
+                      )}
+                      {service?.url && (
+                        <a
+                          href={service.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="mt-1 inline-block text-[13px] text-[var(--color-alive)] underline underline-offset-4"
+                        >
+                          Open the cancellation page →
+                        </a>
+                      )}
+                    </div>
                   </div>
+                </div>
+              );
+            })}
+          </div>
+        </Step>
+      )}
+
+      {toDecide.length > 0 && (
+        <Step
+          n={++step}
+          title={`Decide on ${toDecide.length === 1 ? "this one" : `these ${toDecide.length}`}`}
+          note={atStakeTotal > 0 ? `${inr(atStakeTotal)} at stake` : undefined}
+          tone="text-[var(--color-unsure)]"
+        >
+          <ul className="flex flex-col gap-1.5">
+            {toDecide.map((item) => {
+              const service = services[item.merchantKey];
+              return (
+                <li key={item.merchantKey} className="text-[13px]">
+                  <span className="font-medium">{service?.name ?? item.merchantKey}</span>
+                  <span className="tnum ml-2 text-[var(--color-muted)]">
+                    {inr(service?.monthlyAmount ?? 0)}/mo
+                  </span>
+                  {(service?.atStake ?? 0) > 0 && (
+                    <span className="tnum ml-2 text-[var(--color-unsure)]">
+                      {inr(service!.atStake)} at stake
+                    </span>
+                  )}
+                  <p className="mt-0.5 text-[var(--color-muted)]">{item.rationale}</p>
                 </li>
               );
             })}
           </ul>
-          <p className="mt-3 text-xs text-[var(--color-dim)]">
-            You cancel these yourself. Nothing on this list is actioned for you — the agent
-            proposes, you decide.
+          <p className="mt-2 text-xs text-[var(--color-dim)]">
+            Answer these in the list above — each row has a Yes / No you can change later.
           </p>
-        </div>
+        </Step>
+      )}
+
+      {toKeep.length > 0 && (
+        <Step
+          n={++step}
+          title={`Keep ${toKeep.length === 1 ? "this one" : `these ${toKeep.length}`}`}
+          tone="text-[var(--color-alive)]"
+        >
+          <ul className="flex flex-col gap-1">
+            {toKeep.map((item) => {
+              const service = services[item.merchantKey];
+              return (
+                <li key={item.merchantKey} className="text-[13px]">
+                  <span className="font-medium">{service?.name ?? item.merchantKey}</span>
+                  <span className="tnum ml-2 text-[var(--color-muted)]">
+                    {inr(service?.monthlyAmount ?? 0)}/mo
+                  </span>
+                  <span className="ml-2 text-[var(--color-muted)]">— {item.rationale}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Step>
       )}
 
       <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[var(--color-edge)] pt-5">
@@ -230,7 +308,7 @@ export function PlanPanel({
               disabled={pending}
               className="rounded-lg bg-[var(--color-alive)] px-5 py-2 text-sm font-semibold text-[var(--color-ink)] transition-opacity hover:opacity-90 disabled:opacity-50"
             >
-              Accept the plan
+              Accept this plan
             </button>
             <button
               type="button"
@@ -247,9 +325,9 @@ export function PlanPanel({
         ) : (
           <>
             <span
-              className={`text-sm font-medium ${proposal.status === "accepted" ? "text-[var(--color-alive)]" : "text-[var(--color-muted)]"}`}
+              className={`text-sm font-medium ${accepted ? "text-[var(--color-alive)]" : "text-[var(--color-muted)]"}`}
             >
-              {proposal.status === "accepted" ? "Plan accepted." : "Plan set aside."}
+              {accepted ? "Plan accepted." : "Plan set aside."}
             </span>
             <button
               type="button"
@@ -275,5 +353,37 @@ export function PlanPanel({
         </p>
       )}
     </div>
+  );
+}
+
+/** One numbered step, with its own heading and money line. */
+function Step({
+  n,
+  title,
+  note,
+  tone,
+  children,
+}: {
+  n: number;
+  title: string;
+  note?: string;
+  tone: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-6">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
+        <h3 className="flex items-baseline gap-2 text-sm font-semibold">
+          <span
+            className={`tnum flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-panel-2)] text-xs ${tone}`}
+          >
+            {n}
+          </span>
+          {title}
+        </h3>
+        {note && <span className={`tnum text-xs ${tone}`}>{note}</span>}
+      </div>
+      {children}
+    </section>
   );
 }

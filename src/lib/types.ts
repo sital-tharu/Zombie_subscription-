@@ -74,30 +74,6 @@ export interface Subscription {
   spanDays: number;
 }
 
-/**
- * A merchant that charged you but did not qualify as a subscription: one or two
- * occurrences, where three are required. Carries no verdict, no confidence and
- * no waste figure -- nothing is being claimed about it, which is the point.
- * It exists so an uploaded transaction is never invisible.
- */
-export interface Candidate {
-  merchantKey: string;
-  merchant: string;
-  /** 1 or 2. Three would make it a Subscription instead. */
-  occurrences: number;
-  latestAmount: number;
-  lastDate: string;
-  /** Ascending by (date, id), mirroring Subscription.chargeIds. */
-  chargeIds: string[];
-  /** How many more charges are needed: MIN_OCCURRENCES - occurrences. */
-  needs: number;
-  /**
-   * When the next charge would land IF the two existing ones already satisfy
-   * both chain rules. Null otherwise -- no date beats a wrong date.
-   */
-  expectedNext: string | null;
-}
-
 export type Verdict = "used" | "likely-unused" | "unknown";
 
 /**

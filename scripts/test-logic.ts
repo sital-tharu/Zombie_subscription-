@@ -39,7 +39,6 @@ import {
 } from "../src/lib/proposal";
 import { buildSeedTransactions, EXPECTED_SEED_OUTCOME } from "../src/lib/seed-data";
 import {
-  detectCandidates,
   detectSubscriptions,
   ENDED_AFTER_DAYS,
   monthlyTotal,
@@ -930,89 +929,6 @@ check("ENDED: every seeded subscription is active, so the demo is unaffected", (
   }
   // Belt and braces: the run-rate equality only holds while nothing has ended.
   assert.strictEqual(result.monthlyRunRate, monthlyTotal(result.subscriptions));
-});
-
-// ---------------------------------------------------------------------------
-// CAND -- merchants that charged you but did not qualify.
-//
-// The product was silently swallowing uploads: a one-off recharge is stored
-// correctly and then appears nowhere, because every surface is built from
-// detected chains. These are the rows that make it visible.
-// ---------------------------------------------------------------------------
-
-check("CAND: a single charge is a candidate needing two more", () => {
-  const candidates = detectCandidates([t("AIRTEL", 5, 299)], ASOF);
-  assert.strictEqual(candidates.length, 1);
-  assert.strictEqual(candidates[0].merchantKey, "airtel");
-  assert.strictEqual(candidates[0].occurrences, 1);
-  assert.strictEqual(candidates[0].needs, 2);
-  assert.strictEqual(candidates[0].latestAmount, 299);
-  assert.strictEqual(candidates[0].expectedNext, null, "one charge sets no cadence");
-});
-
-check("CAND: two matching charges project the third", () => {
-  const candidates = detectCandidates(
-    [t("BLINKIT", 35, 450), t("BLINKIT", 5, 450)],
-    ASOF,
-  );
-  assert.strictEqual(candidates.length, 1);
-  assert.strictEqual(candidates[0].occurrences, 2);
-  assert.strictEqual(candidates[0].needs, 1);
-  assert.strictEqual(
-    candidates[0].expectedNext,
-    addDaysIso(ago(5), 30),
-    "last charge plus the observed gap",
-  );
-});
-
-check("CAND: a pair that would not chain gets no projected date", () => {
-  // 65 days apart -- a third charge at this spacing would break the cadence
-  // rule, so promising a date would be promising something untrue.
-  const wrongCadence = detectCandidates(
-    [t("CROMA", 70, 1000), t("CROMA", 5, 1000)],
-    ASOF,
-  );
-  assert.strictEqual(wrongCadence[0].expectedNext, null);
-
-  // Right cadence, but the amount moved more than the tolerance allows.
-  const wrongAmount = detectCandidates(
-    [t("IKEA", 35, 500), t("IKEA", 5, 900)],
-    ASOF,
-  );
-  assert.strictEqual(wrongAmount[0].occurrences, 2);
-  assert.strictEqual(wrongAmount[0].expectedNext, null);
-});
-
-check("CAND: candidates and subscriptions never overlap", () => {
-  const txns = buildSeedTransactions({ asOf: ASOF });
-  const subKeys = new Set(detectSubscriptions(txns, ASOF).map((s) => s.merchantKey));
-  const candidates = detectCandidates(txns, ASOF);
-
-  assert.ok(candidates.length > 0, "the seed's background noise must produce some");
-  for (const candidate of candidates) {
-    assert.ok(
-      !subKeys.has(candidate.merchantKey),
-      `${candidate.merchantKey} cannot be both a subscription and a candidate`,
-    );
-    assert.ok(
-      candidate.occurrences < 3,
-      `${candidate.merchantKey} has ${candidate.occurrences} charges -- three would make it a subscription`,
-    );
-  }
-  // None of the five planted subscriptions may leak into the watchlist.
-  for (const expected of EXPECTED_SEED_OUTCOME.verdicts) {
-    assert.ok(!candidates.some((c) => c.merchantKey === expected.merchantKey));
-  }
-});
-
-check("CAND: three non-chaining charges are noise, not a near miss", () => {
-  // Three Swiggy orders at wildly different amounts. This is shopping, not a
-  // subscription in the making, and listing it would bury the signal.
-  const candidates = detectCandidates(
-    [t("SWIGGY", 40, 240), t("SWIGGY", 20, 700), t("SWIGGY", 3, 415)],
-    ASOF,
-  );
-  assert.deepStrictEqual(candidates, []);
 });
 
 check("DET: rewinding asOf gives the historically correct answer", () => {
