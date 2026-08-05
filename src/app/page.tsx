@@ -81,6 +81,24 @@ export default async function Home({
   const result = analyze(transactions, asOf, { answers, cancellations });
 
   /*
+   * The plan is about what to do NOW, so it is always built from a run as of
+   * today -- even while the page is showing an older month.
+   *
+   * Without this the Done ticks silently do nothing on any past month. Ticking
+   * writes a cancellation dated today; the engine then correctly rules it out
+   * of a 31-July view, because on 31 July it had not happened; so the checkbox
+   * never ticks and clicking again just rewrites the same date. The engine is
+   * right and the time machine has to keep that filter -- it is the UI that was
+   * wrong to read an action list through a historical lens.
+   *
+   * On the current month this is the very same object, so there is no second
+   * pass in the common case.
+   */
+  const planResult = isCurrentMonth
+    ? result
+    : analyze(transactions, today, { answers, cancellations });
+
+  /*
    * Flagged AND still being paid for. A cancelled subscription keeps its
    * likely-unused verdict -- that judgement was correct and its wasted figure
    * still stands -- but it must not be counted alongside "still on the table",
@@ -172,8 +190,10 @@ export default async function Home({
   const nextMonth = addMonths(selectedMonth, 1);
   const hasPrev = prevMonth >= earliestMonth;
 
+  // From planResult, not result: these carry the tick state, and it must be
+  // today's, not the selected month's.
   const services = Object.fromEntries(
-    result.verdicts.map((v) => [
+    planResult.verdicts.map((v) => [
       v.merchantKey,
       {
         name: v.merchant,
@@ -543,7 +563,14 @@ export default async function Home({
           {/* Your plan */}
           <section className="mt-8">
             <div className="flex items-baseline justify-between gap-2">
-              <h2 className="text-[13px] text-[var(--color-muted)]">Your plan</h2>
+              <h2 className="text-[13px] text-[var(--color-muted)]">
+                Your plan
+                {/* Said out loud, because everything above this point on the
+                    page is showing the selected month and this section is not. */}
+                {!isCurrentMonth && (
+                  <span className="ml-2 text-[var(--color-dim)]">· always about today</span>
+                )}
+              </h2>
               <span className="text-xs text-[var(--color-dim)]">
                 a checklist, not an action — nothing is cancelled for you
               </span>
