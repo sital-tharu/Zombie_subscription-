@@ -108,20 +108,43 @@ no Zod or Firestore imports. Keep Layers 1–3 pure and framework-free so
 
 ## Scope discipline
 
-Explicitly **out**: chat agent, multi-user accounts, autonomous cancellation,
-bank/app-store API integration, device telemetry. These are stated non-goals
-in the PRD — do not build them.
+Explicitly **out**: multi-user accounts, autonomous cancellation, bank/app-store
+API integration, device telemetry. These are stated non-goals in the PRD — do
+not build them.
 
-P1, only if the schedule holds: Gmail OAuth + email engagement signal
-(Layer 2b), unmapped-merchant Gemini fallback.
+**Shipped, having previously been non-goals.** Both were reversed deliberately,
+and both were made to obey the rules above rather than being granted exceptions:
+
+- **Gmail intake + Layer 2b** (`gmail.readonly`, label-filtered). Bills become
+  transactions through the *same* Zod schema as a screenshot; order
+  confirmations become usage evidence through `isEmailUsageEvidence`, which
+  mirrors `isUsageEvidence` step for step because the self-validation trap
+  exists in the email domain too — a renewal notice must never prove that the
+  subscription it bills for is in use.
+- **The chat assistant** (`src/lib/chat.ts`). The one place a model talks to the
+  user about money, so it is the **fourth** enforcement of "Gemini never
+  produces a number": the engine computes every figure, Gemini is handed them
+  and asked only for sentences, and `foreignNumbers` discards the entire reply
+  if a single unsupplied digit appears in it. A code-authored answer is computed
+  *before* the model is called and ships whenever the reply cannot be trusted.
+  Never let this become a chatbot that does arithmetic.
 
 ## Environment (.env.local)
 
 ```
 GEMINI_API_KEY=            # aistudio.google.com/apikey
 FIREBASE_SERVICE_ACCOUNT_PATH=./secrets/serviceAccount.json
-OWNER_KEY=                 # single-owner passcode
+OWNER_KEY=                 # single-owner passcode; also the OAuth `state`
+GMAIL_CLIENT_ID=           # optional; Layer 2b. Without it the control shows setup steps
+GMAIL_CLIENT_SECRET=
+GMAIL_LABEL=zombie         # only mail carrying this label is ever fetched
+CHAT_DAILY_LIMIT=200       # cost floor on the assistant, not rate limiting
 ```
+
+`npm run demo:reset` clears answers, cancellations, synced mail, proposals and
+any real transactions, re-seeds, and **exits non-zero if the figures drift from
+`EXPECTED_SEED_OUTCOME`**. Run it before recording anything: a demo accumulates
+state that silently moves every headline figure.
 
 See `PLAN.md` for the build sequence, data contracts and demo script.
 See `docs/PRD.md` and `docs/architecture.md` for the submitted specs.

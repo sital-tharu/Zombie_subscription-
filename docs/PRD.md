@@ -126,5 +126,5 @@ The system follows a left-to-right pipeline:
 *   **Direct bank / app-store API integration:** Avoids aggregator dependencies and compliance overhead.
 *   **Autonomous cancellation:** The agent proposes; the human disposes. This is a permanent product principle.
 *   **Multi-user accounts:** Single-owner by design to simplify Gmail token scoping.
-*   **Conversational chat interface:** The UI is the evidence chain; chat adds no functional value.
+*   ~~**Conversational chat interface**~~ — **reversed, and shipped.** The original reasoning was that the UI is the evidence chain and chat adds no functional value. That still holds for *analysis*: the chat cannot reach a conclusion the dashboard does not already show. What it adds is reach — asking "how much did I waste" is faster than reading three tiles. It is constrained accordingly: the engine computes every figure before the model is invoked, and any reply containing a number that was not supplied is discarded whole rather than shown. The assistant can restate the dashboard; it cannot out-run it.
 *   **Device Telemetry:** Usage is inferred from financial/email evidence only; no device-level tracking.
