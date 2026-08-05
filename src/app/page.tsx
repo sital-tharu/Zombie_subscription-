@@ -3,7 +3,7 @@ import { Logo } from "@/components/logo";
 import { PlanPanel } from "@/components/plan-panel";
 import { SourceBadge, VerdictCard } from "@/components/verdict-card";
 import { analyze, LOOKBACK_DAYS } from "@/lib/correlate";
-import { todayIso } from "@/lib/dates";
+import { round2, todayIso } from "@/lib/dates";
 import {
   addMonths,
   dayMonth,
@@ -125,16 +125,29 @@ export default async function Home({
     .filter((txn) => txn.date.startsWith(selectedMonth))
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.id < b.id ? 1 : -1));
 
-  // Only subscription charges -- drawn from the detected chains rather than
-  // from the raw transaction list, so background noise never appears here.
-  const monthCharges = result.verdicts
-    .flatMap((v) =>
-      v.evidence.charges
-        .filter((c) => c.date.startsWith(selectedMonth))
-        .map((c) => ({ ...c, merchant: v.merchant, verdict: v.verdict })),
-    )
-    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.id < b.id ? -1 : 1));
-  const monthBilled = monthCharges.reduce((sum, c) => sum + c.amount, 0);
+  // One-off spending: everything billed this month that is NOT part of a chain.
+  // Subscription charges are excluded here because the run rate already counts
+  // them, and adding both would bill the user twice on screen.
+  const paymentsMade = round2(
+    monthTransactions
+      .filter((txn) => !chainedIds.has(txn.id))
+      .reduce((sum, txn) => sum + txn.total, 0),
+  );
+  const totalSpend = round2(result.monthlyRunRate + paymentsMade);
+  const activeCount = result.subscriptions.length - endedCount;
+  const monthTotal = round2(monthTransactions.reduce((sum, txn) => sum + txn.total, 0));
+
+  // Ten visible, the rest a click away. A month of real GPay history is
+  // hundreds of rows, and an unbounded table would push the plan off the page.
+  const visibleTransactions = monthTransactions.slice(0, 10);
+  const hiddenTransactions = monthTransactions.slice(10);
+
+  // So a subscription charge in the list still carries its verdict. Without it
+  // the widest table on the page would be the one place a charge appears with
+  // no judgement attached, which is the drift CLAUDE.md warns about.
+  const verdictByTxn = new Map(
+    result.verdicts.flatMap((v) => v.evidence.charges.map((c) => [c.id, v] as const)),
+  );
 
   // What is still to come this month. The seed's charges all land in the back
   // half of a month, so on the 4th the current month is legitimately empty --
@@ -240,36 +253,71 @@ export default async function Home({
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-[1.3fr_1fr]">
             <div className="rounded-xl bg-[var(--color-panel)] p-4">
               <p className="text-[13px] text-[var(--color-muted)]">
-                Wasted to date{isCurrentMonth ? "" : ` · as of ${shortDate(asOf)}`}
+                Total spend · {isCurrentMonth ? "this month" : monthLabel(selectedMonth)}
               </p>
-              <p className="tnum mt-1 font-mono text-3xl font-medium tracking-tight text-[var(--color-zombie)]">
-                {inr(result.totalWasted)}
+              <p className="tnum mt-1 font-mono text-3xl font-medium tracking-tight">
+                {inr(totalSpend)}
               </p>
+              {/*
+                One of these is a commitment and the other is an actual, so both
+                say which. "Subscriptions" is the run rate -- what the month
+                costs you whether or not the charge has landed yet -- because
+                every seeded charge falls late in the month and a billed-so-far
+                figure reads zero on the 5th.
+              */}
               <p className="mt-1.5 text-xs text-[var(--color-muted)]">
-                {flagged.length > 0 ? (
-                  <>
-                    across {flagged.length}{" "}
-                    {flagged.length === 1 ? "subscription" : "subscriptions"} ·{" "}
-                    <span className="tnum">{inr(result.annualSavings)}</span>/yr if you cancel
-                    them
-                  </>
-                ) : (
-                  "nothing flagged yet"
-                )}
+                <span className="tnum text-[var(--color-fg)]">
+                  {inr(result.monthlyRunRate)}
+                </span>{" "}
+                subscriptions due
+                <span className="mx-1.5 text-[var(--color-dim)]">·</span>
+                <span className="tnum text-[var(--color-fg)]">{inr(paymentsMade)}</span> payments
+                made
               </p>
             </div>
             <div className="flex flex-col justify-center rounded-xl bg-[var(--color-panel)] p-4">
               <p className="text-[13px] text-[var(--color-muted)]">Recurring</p>
-              <p className="tnum mt-1 font-mono text-3xl font-medium tracking-tight">
-                {result.subscriptions.length}
+              <p className="mt-1 font-mono text-3xl font-medium tracking-tight">
+                <span className="tnum">{result.subscriptions.length}</span>
+                <span className="ml-2 text-[13px] font-normal text-[var(--color-muted)]">
+                  {result.subscriptions.length === 1 ? "subscription" : "subscriptions"}
+                </span>
               </p>
               <p className="mt-1.5 text-xs text-[var(--color-muted)]">
-                {result.needsInput.length > 0
-                  ? `${result.needsInput.length} we can't judge without you`
-                  : "all judged"}
-                {endedCount > 0 && ` · ${endedCount} already ended`}
+                {activeCount} active
+                {endedCount > 0 && ` · ${endedCount} ended`}
+                {result.needsInput.length > 0 && ` · ${result.needsInput.length} unjudged`}
               </p>
             </div>
+          </div>
+
+          {/* The figure that makes this different from a bank app. It lost its
+              place in the tile row to the spend breakdown, but not its
+              prominence -- full width, and still above everything it explains. */}
+          <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 rounded-xl bg-[var(--color-panel)] p-4">
+            <div className="flex items-baseline gap-3">
+              <p className="text-[13px] text-[var(--color-muted)]">
+                Wasted to date{isCurrentMonth ? "" : ` · as of ${shortDate(asOf)}`}
+              </p>
+              <p className="tnum font-mono text-2xl font-medium tracking-tight text-[var(--color-zombie)]">
+                {inr(result.totalWasted)}
+              </p>
+            </div>
+            <p className="text-xs text-[var(--color-muted)]">
+              {flagged.length > 0 ? (
+                <>
+                  across {flagged.length}{" "}
+                  {flagged.length === 1 ? "subscription" : "subscriptions"}
+                  <span className="mx-1.5 text-[var(--color-dim)]">·</span>
+                  <span className="tnum text-[var(--color-fg)]">
+                    {inr(result.annualSavings)}
+                  </span>{" "}
+                  a year if you cancel them
+                </>
+              ) : (
+                "nothing flagged yet"
+              )}
+            </p>
           </div>
 
           {/* Demo beat five, above the fold. */}
@@ -312,60 +360,89 @@ export default async function Home({
             </ul>
           </section>
 
-          {/* This month's charges */}
+          {/*
+            All transactions, chained or not.
+
+            This replaced a subscription-only charges table. That table was
+            built from detected chains, which meant the app silently swallowed
+            uploads: a one-off recharge was parsed, validated and stored, then
+            appeared nowhere, and a user could not tell a misread screenshot
+            from a payment that simply is not a subscription. Nothing is lost by
+            widening it -- subscription charges still appear, tagged with their
+            verdict, and each one's full ledger is still inside its own card.
+          */}
           <section className="mt-8">
             <div className="flex items-baseline justify-between gap-2">
               <h2 className="text-[13px] text-[var(--color-muted)]">
-                Charges in {monthLabel(selectedMonth)}
+                All transactions in {monthLabel(selectedMonth)}
               </h2>
-              {monthCharges.length > 0 && (
+              {monthTransactions.length > 0 && (
                 <span className="tnum text-xs text-[var(--color-dim)]">
-                  {monthCharges.length} {monthCharges.length === 1 ? "charge" : "charges"} ·{" "}
-                  {inr(monthBilled)}
+                  {monthTransactions.length}{" "}
+                  {monthTransactions.length === 1 ? "payment" : "payments"} · {inr(monthTotal)}
                 </span>
               )}
             </div>
 
-            {monthCharges.length > 0 ? (
-              <div className="mt-3 overflow-x-auto rounded-lg border border-[var(--color-edge)]">
-                <table className="w-full min-w-[460px] text-[13px]">
-                  <thead>
-                    <tr className="bg-[var(--color-panel)] text-left text-xs text-[var(--color-muted)]">
-                      <th className="px-3.5 py-2 font-medium">Date</th>
-                      <th className="px-3.5 py-2 font-medium">Subscription</th>
-                      <th className="px-3.5 py-2 font-medium">Source</th>
-                      <th className="px-3.5 py-2 text-right font-medium">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthCharges.map((charge) => {
-                      const txn = byId.get(charge.id);
-                      return (
-                        <tr key={charge.id} className="border-t border-[var(--color-edge)]">
-                          <td className="px-3.5 py-2.5 whitespace-nowrap text-[var(--color-muted)]">
-                            {shortDate(charge.date)}
-                          </td>
-                          <td className="px-3.5 py-2.5">
-                            <span
-                              aria-hidden="true"
-                              className={`mr-1.5 ${verdictTextClass(charge.verdict)}`}
-                            >
-                              {verdictGlyph(charge.verdict)}
-                            </span>
-                            {charge.merchant}
-                          </td>
-                          <td className="px-3.5 py-2.5">
-                            <SourceBadge label={sourceLabel(txn?.source, txn?.seeded)} />
-                          </td>
-                          <td className="tnum px-3.5 py-2.5 text-right font-mono">
-                            {inr(charge.amount)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            {monthTransactions.length > 0 ? (
+              <>
+                <div className="mt-3 overflow-x-auto rounded-lg border border-[var(--color-edge)]">
+                  <table className="w-full min-w-[460px] text-[13px]">
+                    <thead>
+                      <tr className="bg-[var(--color-panel)] text-left text-xs text-[var(--color-muted)]">
+                        <th className="px-3.5 py-2 font-medium">Date</th>
+                        <th className="px-3.5 py-2 font-medium">Merchant</th>
+                        <th className="px-3.5 py-2 font-medium">Source</th>
+                        <th className="px-3.5 py-2 text-right font-medium">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleTransactions.map((txn) => (
+                        <TransactionRow
+                          key={txn.id}
+                          txn={txn}
+                          verdict={verdictByTxn.get(txn.id)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {hiddenTransactions.length > 0 && (
+                  <details className="mt-2 overflow-hidden rounded-lg border border-[var(--color-edge)]">
+                    <summary className="flex items-center gap-2 px-3.5 py-2.5 text-[13px] text-[var(--color-muted)]">
+                      <svg
+                        className="chev size-3 shrink-0"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M6 4l4 4-4 4"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      Show {hiddenTransactions.length} more
+                    </summary>
+                    <div className="overflow-x-auto border-t border-[var(--color-edge)]">
+                      <table className="w-full min-w-[460px] text-[13px]">
+                        <tbody>
+                          {hiddenTransactions.map((txn) => (
+                            <TransactionRow
+                              key={txn.id}
+                              txn={txn}
+                              verdict={verdictByTxn.get(txn.id)}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                )}
+              </>
             ) : (
               <div className="mt-3 rounded-lg border border-dashed border-[var(--color-edge)] px-3.5 py-4 text-[13px] text-[var(--color-muted)]">
                 <p>
@@ -389,69 +466,6 @@ export default async function Home({
                   </ul>
                 )}
               </div>
-            )}
-            {/*
-              Every transaction, chained or not. Without this the app silently
-              swallowed uploads: a one-off recharge was parsed, validated and
-              stored, and then appeared nowhere, because every other surface is
-              built from detected chains. A user could not tell a misread
-              screenshot from a payment that simply is not a subscription.
-            */}
-            {monthTransactions.length > 0 && (
-              <details className="mt-3 overflow-hidden rounded-lg bg-[var(--color-panel)]">
-                <summary className="flex items-center gap-2 px-3.5 py-2.5 text-[13px] text-[var(--color-muted)]">
-                  <svg
-                    className="chev size-3 shrink-0"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M6 4l4 4-4 4"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  All transactions in {monthLabel(selectedMonth)} ({monthTransactions.length})
-                </summary>
-                <div className="overflow-x-auto border-t border-[var(--color-edge)]">
-                  <table className="w-full min-w-[460px] text-[13px]">
-                    <thead>
-                      <tr className="text-left text-xs text-[var(--color-muted)]">
-                        <th className="px-3.5 py-2 font-medium">Date</th>
-                        <th className="px-3.5 py-2 font-medium">Merchant</th>
-                        <th className="px-3.5 py-2 font-medium">Source</th>
-                        <th className="px-3.5 py-2 text-right font-medium">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthTransactions.map((txn) => (
-                        <tr key={txn.id} className="border-t border-[var(--color-edge)]">
-                          <td className="px-3.5 py-2 whitespace-nowrap text-[var(--color-muted)]">
-                            {shortDate(txn.date)}
-                          </td>
-                          <td className="px-3.5 py-2">
-                            {txn.merchant}
-                            {chainedIds.has(txn.id) && (
-                              <span className="ml-2 text-xs text-[var(--color-dim)]">
-                                subscription
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3.5 py-2">
-                            <SourceBadge label={sourceLabel(txn.source, txn.seeded)} />
-                          </td>
-                          <td className="tnum px-3.5 py-2 text-right font-mono">
-                            {inr(txn.total)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
             )}
           </section>
 
@@ -552,6 +566,44 @@ export default async function Home({
         </p>
       </footer>
     </main>
+  );
+}
+
+/**
+ * One row of the transactions table, shared by the visible ten and the rest.
+ *
+ * A charge that belongs to a subscription is tagged with that subscription's
+ * verdict glyph, so the widest table on the page is never a place where money
+ * appears without a judgement attached.
+ */
+function TransactionRow({
+  txn,
+  verdict,
+}: {
+  txn: StoredTransaction;
+  verdict: UsageVerdict | undefined;
+}) {
+  return (
+    <tr className="border-t border-[var(--color-edge)]">
+      <td className="px-3.5 py-2 whitespace-nowrap text-[var(--color-muted)]">
+        {shortDate(txn.date)}
+      </td>
+      <td className="px-3.5 py-2">
+        {verdict && (
+          <span aria-hidden="true" className={`mr-1.5 ${verdictTextClass(verdict.verdict)}`}>
+            {verdictGlyph(verdict.verdict)}
+          </span>
+        )}
+        {txn.merchant}
+        {verdict && (
+          <span className="ml-2 text-xs text-[var(--color-dim)]">subscription</span>
+        )}
+      </td>
+      <td className="px-3.5 py-2">
+        <SourceBadge label={sourceLabel(txn.source, txn.seeded)} />
+      </td>
+      <td className="tnum px-3.5 py-2 text-right font-mono">{inr(txn.total)}</td>
+    </tr>
   );
 }
 
