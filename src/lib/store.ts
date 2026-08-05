@@ -15,7 +15,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { StoredTransaction, UserAnswer } from "./types";
+import type { Cancellation, StoredTransaction, UserAnswer } from "./types";
 
 export type StoreMode = "firestore" | "local";
 
@@ -49,6 +49,10 @@ export interface Store {
   saveAnswer(answer: UserAnswer): Promise<void>;
   /** Remove an answer entirely, so inference applies again. */
   clearAnswer(merchantKey: string): Promise<void>;
+  listCancellations(): Promise<Cancellation[]>;
+  saveCancellation(cancellation: Cancellation): Promise<void>;
+  /** Undo a declared cancellation. */
+  clearCancellation(merchantKey: string): Promise<void>;
   saveProposal(proposal: StoredProposal): Promise<void>;
   latestProposal(): Promise<StoredProposal | null>;
   setProposalStatus(id: string, status: StoredProposal["status"]): Promise<void>;
@@ -58,6 +62,7 @@ export interface Store {
 const TRANSACTIONS = "transactions";
 const VERDICTS = "verdicts";
 const PROPOSALS = "proposals";
+const CANCELLATIONS = "cancellations";
 
 /**
  * How many transactions a single read returns.
@@ -248,6 +253,29 @@ async function firestoreStore(): Promise<Store> {
       await db.collection(VERDICTS).doc(merchantKey).delete();
     },
 
+    async listCancellations() {
+      const snap = await db.collection(CANCELLATIONS).get();
+      return snap.docs
+        .map((d: { id: string; data: () => Record<string, unknown> }) => ({
+          merchantKey: d.id,
+          ...d.data(),
+        }))
+        .filter(
+          (c: Partial<Cancellation>) => typeof c.cancelledAt === "string",
+        ) as Cancellation[];
+    },
+
+    async saveCancellation(cancellation) {
+      await db
+        .collection(CANCELLATIONS)
+        .doc(cancellation.merchantKey)
+        .set({ cancelledAt: cancellation.cancelledAt });
+    },
+
+    async clearCancellation(merchantKey) {
+      await db.collection(CANCELLATIONS).doc(merchantKey).delete();
+    },
+
     async saveProposal(proposal) {
       await db.collection(PROPOSALS).doc(proposal.id).set(proposal);
     },
@@ -282,9 +310,15 @@ interface LocalShape {
   transactions: StoredTransaction[];
   answers: UserAnswer[];
   proposals: StoredProposal[];
+  cancellations: Cancellation[];
 }
 
-const EMPTY: LocalShape = { transactions: [], answers: [], proposals: [] };
+const EMPTY: LocalShape = {
+  transactions: [],
+  answers: [],
+  proposals: [],
+  cancellations: [],
+};
 
 function localStore(): Store {
   const file = join(process.cwd(), "data", "zombie.json");
@@ -355,6 +389,25 @@ function localStore(): Store {
     async clearAnswer(merchantKey) {
       const data = read();
       data.answers = data.answers.filter((a) => a.merchantKey !== merchantKey);
+      write(data);
+    },
+
+    async listCancellations() {
+      return read().cancellations;
+    },
+
+    async saveCancellation(cancellation) {
+      const data = read();
+      data.cancellations = [
+        ...data.cancellations.filter((c) => c.merchantKey !== cancellation.merchantKey),
+        cancellation,
+      ];
+      write(data);
+    },
+
+    async clearCancellation(merchantKey) {
+      const data = read();
+      data.cancellations = data.cancellations.filter((c) => c.merchantKey !== merchantKey);
       write(data);
     },
 

@@ -32,6 +32,7 @@ import {
 } from "./subscriptions";
 import type {
   AnalyzeResult,
+  Cancellation,
   ChargeRef,
   Confidence,
   EvidenceChain,
@@ -48,6 +49,8 @@ export const LOOKBACK_DAYS = 90;
 export interface AnalyzeOptions {
   /** Persisted gap-handler answers. Always outrank inference. */
   answers?: readonly UserAnswer[];
+  /** Subscriptions the user has declared cancelled. */
+  cancellations?: readonly Cancellation[];
   /** Tests only. Production always uses LOOKBACK_DAYS. */
   lookbackDays?: number;
 }
@@ -120,6 +123,15 @@ export function analyze(
     (opts?.answers ?? []).map((a) => [a.merchantKey, a]),
   );
 
+  // Only cancellations that had already happened by `asOf`. Paging the
+  // dashboard back to April must show a subscription cancelled in August as
+  // still running, exactly as it was.
+  const cancellationsByKey = new Map(
+    (opts?.cancellations ?? [])
+      .filter((c) => c.cancelledAt <= asOfDate)
+      .map((c) => [c.merchantKey, c]),
+  );
+
   const verdicts = subscriptions.map((sub) => {
     // Scoped to this subscription's OWN charges, deliberately not to every
     // detected chain. Global id-exclusion looks safer and is not: three
@@ -139,7 +151,9 @@ export function analyze(
       lookbackDays,
     });
     const answer = answersByKey.get(sub.merchantKey);
-    return answer ? applyUserAnswer(base, answer) : base;
+    const answered = answer ? applyUserAnswer(base, answer) : base;
+    const cancellation = cancellationsByKey.get(sub.merchantKey);
+    return cancellation ? applyCancellation(answered, cancellation) : answered;
   });
 
   const ranked = rankVerdicts(verdicts);
@@ -412,6 +426,34 @@ export function applyUserAnswer(
     question: null,
     reason: `You confirmed you no longer use ${verdict.merchant}. All ${verdict.evidence.chargeCount} ${plural(verdict.evidence.chargeCount, "charge")} count as waste.`,
     evidence: stamped,
+  };
+}
+
+/**
+ * Apply a declared cancellation, and check whether it took.
+ *
+ * The declaration alone does not end anything -- a charge dated after it is
+ * proof the subscription is still billing, whatever the user believed when they
+ * accepted the plan. In that case `status` is left exactly as inference found
+ * it, so the run rate keeps counting money that is genuinely still leaving the
+ * account, and the UI has `chargedSince` to say so.
+ *
+ * This is what makes "you've saved 5,988 a year" safe to show the moment Accept
+ * is pressed: the claim is not taken on trust, it is checked against the
+ * transaction history on every single render.
+ */
+export function applyCancellation(
+  verdict: UsageVerdict,
+  cancellation: Cancellation,
+): UsageVerdict {
+  const chargedSince = verdict.evidence.charges.filter(
+    (c) => c.date > cancellation.cancelledAt,
+  );
+
+  return {
+    ...verdict,
+    status: chargedSince.length > 0 ? verdict.status : "ended",
+    cancellation: { cancelledAt: cancellation.cancelledAt, chargedSince },
   };
 }
 

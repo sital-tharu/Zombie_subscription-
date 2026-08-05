@@ -5,6 +5,7 @@
  * what an answer means.
  */
 import { randomUUID } from "node:crypto";
+import { todayIso } from "./dates";
 import { extractTransactions } from "./extract";
 import { merchantKeyOf } from "./merchant-map";
 import { getStore } from "./store";
@@ -35,6 +36,27 @@ export async function recordAnswer(
 export async function forgetAnswer(merchantKey: string): Promise<void> {
   const store = await getStore();
   await store.clearAnswer(merchantKey);
+}
+
+/**
+ * Record that the user has cancelled these, as of today.
+ *
+ * Dated rather than a bare flag: the date is what the engine compares charges
+ * against, so a subscription that keeps billing afterwards is caught instead of
+ * quietly disappearing from the run rate.
+ */
+export async function recordCancellations(merchantKeys: readonly string[]): Promise<void> {
+  const store = await getStore();
+  const cancelledAt = todayIso();
+  for (const merchantKey of merchantKeys) {
+    await store.saveCancellation({ merchantKey, cancelledAt });
+  }
+}
+
+/** Undo a declared cancellation, e.g. the user did not get round to it. */
+export async function forgetCancellation(merchantKey: string): Promise<void> {
+  const store = await getStore();
+  await store.clearCancellation(merchantKey);
 }
 
 export interface IngestResult {

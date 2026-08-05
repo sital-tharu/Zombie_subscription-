@@ -37,6 +37,10 @@ export function VerdictCard({
   const theme = verdictTheme(verdict.verdict);
   const { evidence } = verdict;
   const ended = verdict.status === "ended";
+  // Declared cancelled AND it took. A cancellation contradicted by a later
+  // charge is not a cancellation, however firmly it was asserted.
+  const stillBilling = (verdict.cancellation?.chargedSince.length ?? 0) > 0;
+  const cancelled = verdict.cancellation !== undefined && !stillBilling;
   const wastedIds = new Set(verdict.wastedCharges.map((c) => c.id));
 
   return (
@@ -71,9 +75,20 @@ export function VerdictCard({
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 truncate text-sm font-medium">
             {verdict.merchant}
-            {ended && (
-              <span className="shrink-0 rounded bg-[var(--color-panel-2)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--color-muted)] uppercase">
-                Ended
+            {cancelled ? (
+              <span className="shrink-0 rounded bg-[var(--color-alive-dim)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--color-alive)] uppercase">
+                Cancelled
+              </span>
+            ) : (
+              ended && (
+                <span className="shrink-0 rounded bg-[var(--color-panel-2)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--color-muted)] uppercase">
+                  Ended
+                </span>
+              )
+            )}
+            {stillBilling && (
+              <span className="shrink-0 rounded bg-[var(--color-unsure-dim)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--color-unsure)] uppercase">
+                Still billing
               </span>
             )}
           </p>
@@ -108,10 +123,28 @@ export function VerdictCard({
               </>
             )}
           </p>
-          {ended && (
+          {verdict.cancellation ? (
             <p className="mt-0.5 text-xs text-[var(--color-dim)]">
-              appears cancelled — not counted in savings
+              {stillBilling ? (
+                <span className="text-[var(--color-unsure)]">
+                  you marked this cancelled on{" "}
+                  {shortDate(verdict.cancellation.cancelledAt)}, but it billed again on{" "}
+                  {shortDate(
+                    verdict.cancellation.chargedSince[
+                      verdict.cancellation.chargedSince.length - 1
+                    ].date,
+                  )}
+                </span>
+              ) : (
+                <>cancelled {shortDate(verdict.cancellation.cancelledAt)} — no longer counted</>
+              )}
             </p>
+          ) : (
+            ended && (
+              <p className="mt-0.5 text-xs text-[var(--color-dim)]">
+                appears cancelled — not counted in savings
+              </p>
+            )
           )}
         </div>
 

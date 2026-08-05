@@ -931,6 +931,84 @@ check("ENDED: every seeded subscription is active, so the demo is unaffected", (
   assert.strictEqual(result.monthlyRunRate, monthlyTotal(result.subscriptions));
 });
 
+// ---------------------------------------------------------------------------
+// CANCEL -- the user declaring a subscription cancelled.
+//
+// Accepting a plan asserts "I have cancelled these", which is what lets the
+// panel say "you've saved" rather than "you would save". The assertion is never
+// taken on trust: it is re-checked against the charge history on every render,
+// and a later charge overturns it.
+// ---------------------------------------------------------------------------
+
+check("CANCEL: a declared cancellation ends the chain and stops the savings", () => {
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  const result = analyze(txns, ASOF, {
+    cancellations: [
+      { merchantKey: "amazon-prime", cancelledAt: ASOF },
+      { merchantKey: "zomato-gold", cancelledAt: ASOF },
+    ],
+  });
+
+  const prime = verdictFor(result, "amazon-prime");
+  assert.strictEqual(prime.status, "ended");
+  assert.strictEqual(prime.cancellation?.cancelledAt, ASOF);
+  assert.deepStrictEqual(prime.cancellation?.chargedSince, [], "nothing billed since");
+
+  // The waste already happened and still counts.
+  assert.strictEqual(prime.zombieScore, 2093);
+  assert.strictEqual(result.totalWasted, 2893);
+
+  // But there is nothing left to save, and you are no longer paying them.
+  assert.strictEqual(result.annualSavings, 0, "cannot save on an already-cancelled chain");
+  assert.strictEqual(result.monthlyRunRate, 1247, "1746 minus Prime's 299 and Zomato's 200");
+});
+
+check("CANCEL: a charge after the declaration overturns it", () => {
+  // Cancelled the day before the last Prime charge landed. The user believed it
+  // was done; the bank disagreed. The bank wins.
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  const prime = detectSubscriptions(txns, ASOF).find((s) => s.merchantKey === "amazon-prime");
+  assert.ok(prime);
+  const dayBeforeLast = addDaysIso(prime.lastDate, -1);
+
+  const result = analyze(txns, ASOF, {
+    cancellations: [{ merchantKey: "amazon-prime", cancelledAt: dayBeforeLast }],
+  });
+  const verdict = verdictFor(result, "amazon-prime");
+
+  assert.strictEqual(verdict.cancellation?.chargedSince.length, 1, "the final charge");
+  assert.strictEqual(
+    verdict.status,
+    "active",
+    "still billing means still active, whatever was declared",
+  );
+  assert.ok(
+    result.monthlyRunRate >= 299,
+    "and it stays in the run rate, because the money is still leaving",
+  );
+});
+
+check("CANCEL: a future cancellation does not apply to an earlier view", () => {
+  // The time machine must not leak. Paging back to a month before the user
+  // cancelled has to show the subscription exactly as it was then.
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  const past = addDaysIso(ASOF, -60);
+  const result = analyze(txns, past, {
+    cancellations: [{ merchantKey: "amazon-prime", cancelledAt: ASOF }],
+  });
+  const prime = verdictFor(result, "amazon-prime");
+  assert.strictEqual(prime.cancellation, undefined, "not cancelled as of that date");
+  assert.strictEqual(prime.status, "active");
+});
+
+check("CANCEL: no cancellations leaves every seeded figure untouched", () => {
+  const txns = buildSeedTransactions({ asOf: ASOF });
+  const plain = analyze(txns, ASOF);
+  const withEmpty = analyze(txns, ASOF, { cancellations: [] });
+  assert.deepStrictEqual(withEmpty, plain, "the option must be inert when unused");
+  assert.strictEqual(plain.annualSavings, EXPECTED_SEED_OUTCOME.annualSavings);
+});
+
 check("DET: rewinding asOf gives the historically correct answer", () => {
   // The time machine. As of 150 days ago, Zomato was still being used.
   const rewound = analyze(demoFixture(), ago(150));

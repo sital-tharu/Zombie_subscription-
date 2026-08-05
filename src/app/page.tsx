@@ -45,9 +45,10 @@ export default async function Home({
   const monthRaw = Array.isArray(sp.m) ? sp.m[0] : sp.m;
 
   const store = await getStore();
-  const [transactions, answers, proposal] = await Promise.all([
+  const [transactions, answers, cancellations, proposal] = await Promise.all([
     store.listTransactions(),
     store.listAnswers(),
+    store.listCancellations(),
     store.latestProposal(),
   ]);
 
@@ -77,7 +78,7 @@ export default async function Home({
    * rather than analysing against a date that has not happened yet.
    */
   const asOf = isCurrentMonth ? today : lastDayOfMonth(selectedMonth);
-  const result = analyze(transactions, asOf, { answers });
+  const result = analyze(transactions, asOf, { answers, cancellations });
 
   const flagged = result.verdicts.filter((v) => v.verdict === "likely-unused");
   const atStake = result.needsInput.reduce((sum, v) => sum + v.potentialWaste, 0);
@@ -152,6 +153,10 @@ export default async function Home({
         // re-deriving anything. Both come straight off the engine's verdict.
         wasted: v.zombieScore,
         atStake: v.potentialWaste,
+        cancelledAt: v.cancellation?.cancelledAt,
+        // Non-empty means the cancellation did not take -- the panel says so
+        // rather than claiming a saving that is still leaving the account.
+        stillBilling: (v.cancellation?.chargedSince.length ?? 0) > 0,
         ...cancelGuidance(v.merchantKey),
       },
     ]),

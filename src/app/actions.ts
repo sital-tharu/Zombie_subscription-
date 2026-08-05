@@ -1,7 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { forgetAnswer, ingestScreenshot, recordAnswer } from "@/lib/ingest";
+import {
+  forgetAnswer,
+  forgetCancellation,
+  ingestScreenshot,
+  recordAnswer,
+  recordCancellations,
+} from "@/lib/ingest";
 import {
   generateProposal,
   setProposalDecision,
@@ -102,9 +108,30 @@ export async function generatePlanAction(): Promise<{ fallbackReason: string | n
   return { fallbackReason };
 }
 
-/** The agent proposes; the human disposes. */
-export async function decideAction(id: string, status: "accepted" | "rejected") {
+/**
+ * The agent proposes; the human disposes.
+ *
+ * Accepting now asserts something concrete -- "I have cancelled these" -- and
+ * records a date for each, which is what lets the dashboard stop counting them
+ * and lets the panel say "you've saved" rather than "you would save". The claim
+ * is not taken on trust: a charge dated after the cancellation puts the
+ * subscription straight back into the run rate.
+ */
+export async function decideAction(
+  id: string,
+  status: "accepted" | "rejected",
+  cancelKeys: readonly string[] = [],
+) {
   await setProposalDecision(id, status);
+  if (status === "accepted" && cancelKeys.length > 0) {
+    await recordCancellations(cancelKeys);
+  }
+  revalidatePath("/");
+}
+
+/** "I didn't actually get round to cancelling that one." */
+export async function undoCancellationAction(merchantKey: string) {
+  await forgetCancellation(merchantKey);
   revalidatePath("/");
 }
 

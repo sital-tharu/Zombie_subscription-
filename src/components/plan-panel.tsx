@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { decideAction, generatePlanAction, toggleChecklistAction } from "@/app/actions";
-import { inr } from "@/lib/format";
+import { decideAction, generatePlanAction, undoCancellationAction } from "@/app/actions";
+import { inr, shortDate } from "@/lib/format";
 import type { StoredProposal } from "@/lib/store";
 
 export interface ServiceInfo {
@@ -12,6 +12,10 @@ export interface ServiceInfo {
   wasted: number;
   /** potentialWaste -- what is riding on an unanswered question. */
   atStake: number;
+  /** Set once the user has declared this cancelled. */
+  cancelledAt?: string;
+  /** True when a charge arrived AFTER that date, i.e. it did not take. */
+  stillBilling?: boolean;
   hint: string;
   url?: string;
 }
@@ -52,8 +56,16 @@ export function PlanPanel({
 
   const decide = (status: "accepted" | "rejected") => {
     if (!proposal) return;
+    // Accepting asserts "I have cancelled these", so the keys go with it and
+    // the engine stops counting them from today.
+    const keys =
+      status === "accepted"
+        ? proposal.items
+            .filter((i) => i.action === "cancel" || i.action === "downgrade")
+            .map((i) => i.merchantKey)
+        : [];
     startTransition(async () => {
-      await decideAction(proposal.id, status);
+      await decideAction(proposal.id, status, keys);
     });
   };
 
@@ -85,15 +97,20 @@ export function PlanPanel({
   const toKeep = proposal.items.filter((i) => i.action === "keep");
 
   const accepted = proposal.status === "accepted";
-  const done = new Set(proposal.completedItems ?? []);
+  const anyStillBilling = toCancel.some((i) => services[i.merchantKey]?.stillBilling);
+  // Only cancellations that actually took. One contradicted by a later charge
+  // has saved nothing, so it cannot appear in a figure headed "you've saved".
   const securedAnnual =
     toCancel
-      .filter((i) => done.has(i.merchantKey))
+      .filter((i) => {
+        const s = services[i.merchantKey];
+        return s?.cancelledAt !== undefined && !s.stillBilling;
+      })
       .reduce((sum, i) => sum + (services[i.merchantKey]?.monthlyAmount ?? 0), 0) * 12;
-  // Clamped: a service missing from `services` contributes nothing to
-  // securedAnnual while still counting toward annualSavings, which would
-  // otherwise render a negative "still on the table".
-  const remainingAnnual = Math.max(0, proposal.annualSavings - securedAnnual);
+  const backInTotal = Math.max(0, proposal.annualSavings - securedAnnual);
+  const cancelledOn = toCancel
+    .map((i) => services[i.merchantKey]?.cancelledAt)
+    .find((d): d is string => typeof d === "string");
   const atStakeTotal = toDecide.reduce(
     (sum, i) => sum + (services[i.merchantKey]?.atStake ?? 0),
     0,
@@ -116,31 +133,28 @@ export function PlanPanel({
       </div>
 
       {accepted && toCancel.length > 0 && (
-        <div className="mt-5 rounded-lg bg-[var(--color-alive-dim)] px-4 py-3">
-          {done.size === 0 ? (
-            <p className="text-sm text-[var(--color-muted)]">
-              Nothing saved yet — tick each one off as you actually cancel it. That is{" "}
-              <span className="tnum font-medium text-[var(--color-alive)]">
-                {inr(proposal.annualSavings)}
-              </span>{" "}
-              a year once the list is clear.
+        <div
+          className={`mt-5 rounded-lg px-4 py-3 ${
+            anyStillBilling
+              ? "border border-[var(--color-unsure)]/40 bg-[var(--color-unsure-dim)]"
+              : "bg-[var(--color-alive-dim)]"
+          }`}
+        >
+          <p className="tnum text-xl font-semibold text-[var(--color-alive)]">
+            You&apos;ve saved {inr(securedAnnual)} a year
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            {toCancel.length} {toCancel.length === 1 ? "subscription" : "subscriptions"}{" "}
+            marked cancelled
+            {cancelledOn && <> on {shortDate(cancelledOn)}</>}
+            {!anyStillBilling && <> · they no longer count toward your monthly total</>}
+          </p>
+          {anyStillBilling && (
+            <p className="mt-2 text-xs font-medium text-[var(--color-unsure)]">
+              But <span className="tnum">{inr(backInTotal)}</span> of that has billed you
+              again since, so it is back in your monthly total — check the flagged row above.
+              The cancellation may not have gone through.
             </p>
-          ) : (
-            <>
-              <p className="tnum text-xl font-semibold text-[var(--color-alive)]">
-                You&apos;ve saved {inr(securedAnnual)} a year
-              </p>
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                {remainingAnnual > 0 ? (
-                  <>
-                    <span className="tnum">{inr(remainingAnnual)}</span> still on the table —{" "}
-                    {toCancel.length - done.size} left to cancel.
-                  </>
-                ) : (
-                  "Every subscription on this list is cancelled. Nothing left on the table."
-                )}
-              </p>
-            </>
           )}
         </div>
       )}
@@ -155,52 +169,16 @@ export function PlanPanel({
           <div className="flex flex-col gap-2">
             {toCancel.map((item) => {
               const service = services[item.merchantKey];
-              const ticked = done.has(item.merchantKey);
+              const settled = Boolean(service?.cancelledAt) && !service?.stillBilling;
               return (
                 <div
                   key={item.merchantKey}
-                  className={`rounded-lg border border-[var(--color-edge)] p-3 transition-opacity ${ticked ? "opacity-55" : ""}`}
+                  className={`rounded-lg border border-[var(--color-edge)] p-3 transition-opacity ${settled ? "opacity-70" : ""}`}
                 >
                   <div className="flex items-start gap-3">
-                    {accepted && (
-                      <button
-                        type="button"
-                        disabled={pending}
-                        aria-pressed={ticked}
-                        aria-label={`Mark ${service?.name ?? item.merchantKey} cancelled`}
-                        onClick={() =>
-                          startTransition(async () => {
-                            await toggleChecklistAction(proposal.id, item.merchantKey);
-                          })
-                        }
-                        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-50 ${
-                          ticked
-                            ? "border-[var(--color-alive)] bg-[var(--color-alive)] text-[var(--color-ink)]"
-                            : "border-[var(--color-edge)] hover:border-[var(--color-muted)]"
-                        }`}
-                      >
-                        {ticked && (
-                          <svg
-                            viewBox="0 0 16 16"
-                            className="size-3.5"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M3 8.5l3.5 3.5L13 5"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                      </button>
-                    )}
-
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                        <span className={`font-medium ${ticked ? "line-through" : ""}`}>
+                        <span className={`font-medium ${settled ? "line-through" : ""}`}>
                           {service?.name ?? item.merchantKey}
                         </span>
                         <span className="text-sm">
@@ -234,6 +212,33 @@ export function PlanPanel({
                         >
                           Open the cancellation page →
                         </a>
+                      )}
+
+                      {service?.cancelledAt && (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--color-edge)] pt-2">
+                          {service.stillBilling ? (
+                            <span className="text-xs font-medium text-[var(--color-unsure)]">
+                              Billed again since {shortDate(service.cancelledAt)} — still
+                              counting toward your monthly total
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[var(--color-alive)]">
+                              Cancelled {shortDate(service.cancelledAt)} — no longer counted
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={() =>
+                              startTransition(async () => {
+                                await undoCancellationAction(item.merchantKey);
+                              })
+                            }
+                            className="text-xs text-[var(--color-dim)] underline underline-offset-4 hover:text-[var(--color-muted)] disabled:opacity-50"
+                          >
+                            Not cancelled after all
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

@@ -174,6 +174,13 @@ export interface UsageVerdict {
   question: string | null;
   /** Code-authored one-liner. Gemini never writes this. */
   reason: string;
+  /**
+   * Present when the user has declared this cancelled, and the declaration is
+   * on or before `asOf`. `chargedSince` is the proof that it did not take:
+   * charges that arrived afterwards. Non-empty means the subscription is still
+   * billing whatever was declared, and `status` stays active accordingly.
+   */
+  cancellation?: { cancelledAt: string; chargedSince: ChargeRef[] };
   evidence: EvidenceChain;
 }
 
@@ -182,6 +189,23 @@ export interface UserAnswer {
   used: boolean;
   /** ISO timestamp. */
   answeredAt: string;
+}
+
+/**
+ * The user declaring that they have cancelled a subscription.
+ *
+ * Distinct from a UserAnswer, which is about USE. This is about BILLING: it
+ * says the charges have stopped, which the engine would otherwise only work out
+ * after ENDED_AFTER_DAYS of silence. Declaring it just gets there sooner.
+ *
+ * A date rather than a timestamp, so it compares directly against `asOf` and
+ * against charge dates. That comparison is what keeps the claim honest -- a
+ * charge dated after this is proof the cancellation did not take.
+ */
+export interface Cancellation {
+  merchantKey: string;
+  /** YYYY-MM-DD. */
+  cancelledAt: string;
 }
 
 export interface AnalyzeResult {
