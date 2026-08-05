@@ -24,6 +24,19 @@ export async function recordAnswer(
   return answer;
 }
 
+/**
+ * Discard a stored answer so the engine's own inference applies again.
+ *
+ * The alternative -- letting a user only ever flip between yes and no -- makes a
+ * mis-tap permanent, and a mistaken "no" prices an entire charge chain as waste.
+ * A verdict the user can reach but not leave is worse than one they cannot
+ * reach at all.
+ */
+export async function forgetAnswer(merchantKey: string): Promise<void> {
+  const store = await getStore();
+  await store.clearAnswer(merchantKey);
+}
+
 export interface IngestResult {
   added: number;
   transactions: StoredTransaction[];

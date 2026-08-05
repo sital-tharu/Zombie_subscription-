@@ -47,6 +47,8 @@ export interface Store {
   deleteTransactions(ids: readonly string[]): Promise<number>;
   listAnswers(): Promise<UserAnswer[]>;
   saveAnswer(answer: UserAnswer): Promise<void>;
+  /** Remove an answer entirely, so inference applies again. */
+  clearAnswer(merchantKey: string): Promise<void>;
   saveProposal(proposal: StoredProposal): Promise<void>;
   latestProposal(): Promise<StoredProposal | null>;
   setProposalStatus(id: string, status: StoredProposal["status"]): Promise<void>;
@@ -242,6 +244,10 @@ async function firestoreStore(): Promise<Store> {
         .set({ used: answer.used, answeredAt: answer.answeredAt }, { merge: true });
     },
 
+    async clearAnswer(merchantKey) {
+      await db.collection(VERDICTS).doc(merchantKey).delete();
+    },
+
     async saveProposal(proposal) {
       await db.collection(PROPOSALS).doc(proposal.id).set(proposal);
     },
@@ -343,6 +349,12 @@ function localStore(): Store {
         ...data.answers.filter((a) => a.merchantKey !== answer.merchantKey),
         answer,
       ];
+      write(data);
+    },
+
+    async clearAnswer(merchantKey) {
+      const data = read();
+      data.answers = data.answers.filter((a) => a.merchantKey !== merchantKey);
       write(data);
     },
 

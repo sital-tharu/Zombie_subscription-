@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { PlanPanel } from "@/components/plan-panel";
 import { SourceBadge, VerdictCard } from "@/components/verdict-card";
-import { UploadScreenshot } from "@/components/upload-screenshot";
 import { analyze, LOOKBACK_DAYS } from "@/lib/correlate";
 import { todayIso } from "@/lib/dates";
 import {
@@ -216,7 +215,14 @@ export default async function Home({
                 )}
               </div>
             </div>
-            {hasGeminiKey() && <UploadScreenshot />}
+            {hasGeminiKey() && (
+              <Link
+                href="/upload"
+                className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)]"
+              >
+                + Add a screenshot
+              </Link>
+            )}
           </div>
 
           {!isCurrentMonth && (

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ingestScreenshot, recordAnswer } from "@/lib/ingest";
+import { forgetAnswer, ingestScreenshot, recordAnswer } from "@/lib/ingest";
 import {
   generateProposal,
   setProposalDecision,
@@ -23,16 +23,35 @@ export async function answerAction(merchantKey: string, used: boolean) {
   revalidatePath("/");
 }
 
-export async function uploadAction(formData: FormData): Promise<{ ok: boolean; message: string }> {
+/** One extracted payment, as the upload page lists it back to the user. */
+export interface ExtractedRow {
+  id: string;
+  merchant: string;
+  date: string;
+  total: number;
+}
+
+export interface UploadResult {
+  ok: boolean;
+  message: string;
+  /**
+   * What was actually read. Returned rather than summarised because the whole
+   * point of the upload page is that the user can check Gemini's work: a payee
+   * misread as "AIRTFI" is obvious in a list and invisible in a success count.
+   */
+  rows: ExtractedRow[];
+}
+
+export async function uploadAction(formData: FormData): Promise<UploadResult> {
   const file = formData.get("screenshot");
   if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, message: "Choose a screenshot first." };
+    return { ok: false, message: "Choose a screenshot first.", rows: [] };
   }
   if (!file.type.startsWith("image/")) {
-    return { ok: false, message: "That file is not an image." };
+    return { ok: false, message: "That file is not an image.", rows: [] };
   }
   if (file.size > 8 * 1024 * 1024) {
-    return { ok: false, message: "Image is larger than 8 MB." };
+    return { ok: false, message: "Image is larger than 8 MB.", rows: [] };
   }
 
   try {
@@ -40,19 +59,40 @@ export async function uploadAction(formData: FormData): Promise<{ ok: boolean; m
     const { added, transactions } = await ingestScreenshot(bytes, file.type);
     revalidatePath("/");
     if (added === 0) {
-      return { ok: false, message: "No payments could be read from that image." };
+      return {
+        ok: false,
+        message: "No payments could be read from that image.",
+        rows: [],
+      };
     }
-    const names = [...new Set(transactions.map((t) => t.merchant))].slice(0, 3).join(", ");
     return {
       ok: true,
-      message: `Added ${added} transaction${added === 1 ? "" : "s"} — ${names}${added > 3 ? "…" : ""}`,
+      message: `Added ${added} transaction${added === 1 ? "" : "s"}.`,
+      rows: transactions.map((t) => ({
+        id: t.id,
+        merchant: t.merchant,
+        date: t.date,
+        total: t.total,
+      })),
     };
   } catch (error) {
     return {
       ok: false,
       message: error instanceof Error ? error.message : "Extraction failed.",
+      rows: [],
     };
   }
+}
+
+/**
+ * Revert to the engine's own inference.
+ *
+ * Without this a mis-tapped answer is permanent: "No, I don't" on an actively
+ * used subscription prices its whole chain as waste, with no way back.
+ */
+export async function clearAnswerAction(merchantKey: string) {
+  await forgetAnswer(merchantKey);
+  revalidatePath("/");
 }
 
 /** Demo beat six: the plan, and the annual savings total. */
