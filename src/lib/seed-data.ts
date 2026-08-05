@@ -16,13 +16,18 @@
  *    third demo beat with it. The donor project's seed scatters four such rows
  *    through its background noise.
  *
- * 2. No background merchant may have two transactions 25-35 days apart with
- *    amounts within 10% of each other. That is the recurring-charge rule, and
- *    tripping it produces a sixth subscription card -- a phantom zombie, which
- *    then reports itself unused because its own charges are excluded from its
- *    own evidence. The donor seed trips this with three electricity bills.
- *    Background merchants here are therefore either infrequent (at most two
- *    charges) or frequent (gaps under 25 days, skipped as intra-month extras).
+ * 2. No background merchant may reach three charges. Three charges 25-35 days
+ *    apart within 10% of each other is the recurring-charge rule, and tripping
+ *    it produces a sixth subscription card -- a phantom zombie, which then
+ *    reports itself unused because its own charges are excluded from its own
+ *    evidence. The donor seed trips this with three electricity bills.
+ *
+ *    Every background merchant is therefore capped at TWO charges. That is a
+ *    stronger guarantee than spacing them carefully: two charges cannot chain
+ *    no matter what their dates or amounts are, so the constraint holds without
+ *    anyone re-checking gap arithmetic after an edit. ACT Fibernet is the proof
+ *    it is needed -- 1499 twice, 31 days apart -- which would chain instantly
+ *    if a third were ever added.
  *
  * 3. The last Zomato order must fall strictly between day 100 and day 130.
  *    "Orders stopped about four months ago" does not by itself give 800 rupees
@@ -126,59 +131,53 @@ const USAGE: readonly Row[] = [
  * to reject. Note the absence of any Amazon merchant, and note that Chocolate
  * Room is here on purpose: it is the merchant that proves `ola` matching is
  * token-based rather than substring-based.
+ *
+ * Deliberately thin -- one merchant per *kind* of spending rather than several.
+ * Firestore's free tier allows 50,000 document reads a day and one dashboard
+ * render reads every transaction, so each background row is a recurring cost
+ * paid on every page load by every visitor, for a fixed amount of realism. Two
+ * cafes do not make the history look more real than one; they just make the
+ * demo run out of quota sooner.
+ *
+ * Keep the variety, not the volume: if you add a merchant, consider whether it
+ * represents a kind of spending not already here, and cap it at two charges.
  */
 const BACKGROUND: readonly Row[] = [
-  // Food -- frequent, so every gap stays under 25 days and nothing chains.
+  // Food
   { slug: "blinkit", merchant: "BLINKIT", category: "Food",
-    charges: [[58, 396], [41, 489], [27, 275], [14, 618], [3, 342]] },
+    charges: [[27, 275], [3, 342]] },
   { slug: "chai", merchant: "CHAI POINT", category: "Food",
-    charges: [[44, 135], [29, 210], [16, 150], [8, 180], [1, 120]] },
-  { slug: "dominos", merchant: "DOMINOS PIZZA", category: "Food",
-    charges: [[76, 878], [22, 549]] },
+    charges: [[16, 150], [1, 120]] },
   { slug: "chocolate-room", merchant: "CHOCOLATE ROOM", category: "Food",
     charges: [[95, 320], [37, 460]] },
-  { slug: "behrouz", merchant: "BEHROUZ BIRYANI", category: "Food",
-    charges: [[143, 640], [51, 725]] },
+  { slug: "dominos", merchant: "DOMINOS PIZZA", category: "Food",
+    charges: [[76, 878], [22, 549]] },
 
-  // Transport
+  // Transport -- cab, fuel, bus and rail are four different kinds of trip, which
+  // is why all four are here while two cab apps would not be.
   { slug: "rapido", merchant: "RAPIDO", category: "Transport",
-    charges: [[57, 83], [43, 110], [26, 52], [13, 95], [5, 68]] },
-  { slug: "namma-yatri", merchant: "NAMMA YATRI", category: "Transport",
-    charges: [[48, 155], [24, 240], [11, 180]] },
+    charges: [[26, 52], [5, 68]] },
   { slug: "indian-oil", merchant: "INDIAN OIL", category: "Transport",
     charges: [[62, 1650], [17, 2100]] },
-  { slug: "irctc", merchant: "IRCTC", category: "Transport",
-    charges: [[171, 890], [88, 1245]] },
   { slug: "bmtc", merchant: "BMTC BUS", category: "Transport",
     charges: [[21, 60], [7, 45]] },
+  { slug: "irctc", merchant: "IRCTC", category: "Transport",
+    charges: [[171, 890], [88, 1245]] },
 
-  // Shopping -- Flipkart, Myntra, Croma, Ajio, Nykaa. Never Amazon.
+  // Shopping -- Flipkart, Myntra, Nykaa. Never Amazon.
   { slug: "flipkart", merchant: "FLIPKART", category: "Shopping",
     charges: [[79, 1120], [18, 2340]] },
   { slug: "myntra", merchant: "MYNTRA", category: "Shopping",
     charges: [[108, 3250], [31, 1899]] },
-  { slug: "croma", merchant: "CROMA", category: "Shopping",
-    charges: [[65, 8990]] },
-  { slug: "ajio", merchant: "AJIO", category: "Shopping",
-    charges: [[137, 899], [46, 1450]] },
   { slug: "nykaa", merchant: "NYKAA", category: "Shopping",
     charges: [[91, 1340], [25, 780]] },
-  { slug: "decathlon", merchant: "DECATHLON", category: "Shopping",
-    charges: [[112, 2650]] },
-  { slug: "ikea", merchant: "IKEA", category: "Shopping",
-    charges: [[152, 4380]] },
 
-  // Utilities -- the danger zone. Monthly bills at a steady amount ARE a
-  // recurring charge by the Layer 1 rule, so each one either varies sharply or
-  // appears at most twice.
+  // Utilities -- monthly bills at a steady amount ARE a recurring charge by the
+  // Layer 1 rule, which is why the two-charge cap below matters most here.
   { slug: "bescom", merchant: "BESCOM", category: "Utilities",
-    charges: [[70, 1420], [39, 860], [8, 1180]] },
+    charges: [[39, 860], [8, 1180]] },
   { slug: "act", merchant: "ACT FIBERNET", category: "Utilities",
     charges: [[36, 1499], [5, 1499]] },
-  { slug: "airtel", merchant: "AIRTEL POSTPAID", category: "Utilities",
-    charges: [[46, 799], [15, 799]] },
-  { slug: "bwssb", merchant: "BWSSB WATER", category: "Utilities",
-    charges: [[82, 410], [20, 340]] },
   { slug: "indane", merchant: "INDANE GAS", category: "Utilities",
     charges: [[128, 1105], [33, 1105]] },
 ];
