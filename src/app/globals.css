@@ -44,6 +44,20 @@
   --color-unsure: #b45309;
   --color-unsure-dim: #fffbeb;
 
+  /*
+   * Provenance, deliberately NOT drawn from the verdict palette.
+   *
+   * Red, green and amber already mean unused, used and can't-tell. A red badge
+   * that meant "came from email" would read as a verdict on a screen full of
+   * money, so where a charge came from gets its own unrelated trio.
+   */
+  --color-src-demo: #475569;
+  --color-src-demo-bg: #f1f5f9;
+  --color-src-receipt: #1d4ed8;
+  --color-src-receipt-bg: #eff6ff;
+  --color-src-email: #6d28d9;
+  --color-src-email-bg: #f5f3ff;
+
   --page-bg: #ffffff;
 }
 
@@ -68,6 +82,13 @@
     --color-alive-dim: #12291a;
     --color-unsure: #e3a008;
     --color-unsure-dim: #33270a;
+
+    --color-src-demo: #94a3b8;
+    --color-src-demo-bg: #1e293b;
+    --color-src-receipt: #60a5fa;
+    --color-src-receipt-bg: #172554;
+    --color-src-email: #a78bfa;
+    --color-src-email-bg: #2e1065;
 
     --page-bg:
       radial-gradient(900px 500px at 15% -8%, #1b2030 0%, transparent 60%),

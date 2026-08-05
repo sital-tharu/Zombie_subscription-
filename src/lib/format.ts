@@ -91,6 +91,34 @@ export function isMonthKey(key: string): boolean {
  * showing scripted demo data as though it were a real receipt is exactly the
  * claim this badge exists to prevent.
  */
+/**
+ * Colours for a provenance badge.
+ *
+ * Kept apart from `verdictTheme` on purpose: red, green and amber already carry
+ * meaning about usage, and reusing them for where a charge came from would put
+ * two different claims in the same colour on the same row.
+ */
+export function sourceTheme(label: string): { text: string; bg: string } {
+  switch (label) {
+    case "Receipt":
+      return {
+        text: "text-[var(--color-src-receipt)]",
+        bg: "bg-[var(--color-src-receipt-bg)]",
+      };
+    case "Email":
+      return {
+        text: "text-[var(--color-src-email)]",
+        bg: "bg-[var(--color-src-email-bg)]",
+      };
+    default:
+      // Demo, Manual and Unknown all read as "not from a document you gave us".
+      return {
+        text: "text-[var(--color-src-demo)]",
+        bg: "bg-[var(--color-src-demo-bg)]",
+      };
+  }
+}
+
 export function sourceLabel(source: string | undefined, seeded?: boolean): string {
   if (seeded || source === "seed") return "Demo";
   switch (source) {

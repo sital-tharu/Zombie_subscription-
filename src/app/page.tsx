@@ -82,7 +82,6 @@ export default async function Home({
   const result = analyze(transactions, asOf, { answers });
 
   const flagged = result.verdicts.filter((v) => v.verdict === "likely-unused");
-  const askable = new Set(result.needsInput.map((v) => v.merchantKey));
   const atStake = result.needsInput.reduce((sum, v) => sum + v.potentialWaste, 0);
 
   // Provenance is resolved here rather than in the engine. `TransactionLike`
@@ -350,11 +349,7 @@ export default async function Home({
             <ul className="mt-2 flex flex-col gap-2">
               {result.verdicts.map((verdict) => (
                 <li key={verdict.merchantKey}>
-                  <VerdictCard
-                    verdict={verdict}
-                    sources={sourcesFor(verdict)}
-                    ask={askable.has(verdict.merchantKey)}
-                  />
+                  <VerdictCard verdict={verdict} sources={sourcesFor(verdict)} />
                 </li>
               ))}
             </ul>

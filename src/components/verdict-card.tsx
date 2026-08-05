@@ -1,4 +1,4 @@
-import { GapQuestion } from "@/components/gap-question";
+import { UsageTick } from "@/components/usage-tick";
 import {
   confidenceLabel,
   dayMonth,
@@ -6,6 +6,7 @@ import {
   inr,
   monthsLabel,
   shortDate,
+  sourceTheme,
   verdictLabel,
   verdictTheme,
 } from "@/lib/format";
@@ -28,13 +29,10 @@ import type { UsageVerdict } from "@/lib/types";
 export function VerdictCard({
   verdict,
   sources,
-  ask = false,
 }: {
   verdict: UsageVerdict;
   /** Where this subscription's charges came from: "Demo", "Receipt", "Email". */
   sources: string[];
-  /** Render the gap question in the body. True only for unanswered unknowns. */
-  ask?: boolean;
 }) {
   const theme = verdictTheme(verdict.verdict);
   const { evidence } = verdict;
@@ -153,11 +151,11 @@ export function VerdictCard({
           <p className="mt-2 text-[13px] text-[var(--color-muted)]">{verdict.reason}</p>
         </div>
 
-        {ask && verdict.question && (
-          <div className="mb-5">
-            <GapQuestion verdict={verdict} />
-          </div>
-        )}
+        {/* Every subscription, not just the unjudgeable ones. The engine has
+            always honoured an answer in both directions; this is the way in. */}
+        <div className="mb-5">
+          <UsageTick verdict={verdict} />
+        </div>
 
         <h3 className="mb-3 font-mono text-[11px] tracking-widest text-[var(--color-dim)] uppercase">
           Evidence chain
@@ -300,8 +298,11 @@ export function VerdictCard({
  * verdict, so it never borrows the verdict palette.
  */
 export function SourceBadge({ label }: { label: string }) {
+  const theme = sourceTheme(label);
   return (
-    <span className="rounded bg-[var(--color-panel-2)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${theme.bg} ${theme.text}`}
+    >
       {label}
     </span>
   );
