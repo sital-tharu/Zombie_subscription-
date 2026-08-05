@@ -221,10 +221,40 @@ export function VerdictCard({
                     <span className="text-[var(--color-zombie)]">nothing</span>
                   )}
                 </Row>
+                {/* Layer 2b. Shown as its own row, and only when there is mail
+                    to report on, so a user without Gmail connected is never
+                    told about a source that contributed nothing. */}
+                {(evidence.emailMatchesInWindow.length > 0 || evidence.lastEmailUsage) && (
+                  <Row label="In your inbox">
+                    {evidence.emailMatchesInWindow.length > 0 ? (
+                      <span className="text-[var(--color-alive)]">
+                        {evidence.emailMatchesInWindow.length} confirmation{" "}
+                        {evidence.emailMatchesInWindow.length === 1 ? "email" : "emails"}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--color-muted)]">
+                        none in the window
+                      </span>
+                    )}
+                    {evidence.lastEmailUsage && (
+                      <span className="ml-2 text-[var(--color-dim)]">
+                        — latest &ldquo;{evidence.lastEmailUsage.subject}&rdquo;,{" "}
+                        {shortDate(evidence.lastEmailUsage.date)}
+                      </span>
+                    )}
+                  </Row>
+                )}
                 <Row label="Last usage">
-                  {evidence.lastUsage ? (
+                  {evidence.lastUsage || evidence.lastEmailUsage ? (
                     <>
-                      {shortDate(evidence.lastUsage.date)}
+                      {shortDate(
+                        // Whichever source is later -- the same figure that
+                        // bounds the score.
+                        [evidence.lastUsage?.date, evidence.lastEmailUsage?.date]
+                          .filter((d): d is string => typeof d === "string")
+                          .sort()
+                          .pop()!,
+                      )}
                       <span className="ml-2 text-[var(--color-dim)]">
                         {daysAgoLabel(evidence.daysSinceLastUsage)}
                       </span>

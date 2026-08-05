@@ -8,6 +8,7 @@ import {
   recordAnswer,
   recordCancellations,
 } from "@/lib/ingest";
+import { syncGmail } from "@/lib/gmail";
 import { generateProposal, setProposalDecision } from "@/lib/plan-service";
 
 /**
@@ -95,6 +96,40 @@ export async function uploadAction(formData: FormData): Promise<UploadResult> {
 export async function clearAnswerAction(merchantKey: string) {
   await forgetAnswer(merchantKey);
   revalidatePath("/");
+}
+
+/**
+ * Layer 2b: pull the labelled mail.
+ *
+ * A server action rather than a browser fetch to /api/gmail/sync, for the same
+ * reason as every other control here -- the route is passcode-gated, and
+ * handing the passcode to the browser so the browser can hand it back is not
+ * authentication.
+ */
+export async function syncGmailAction(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const result = await syncGmail();
+    if ("needsAuth" in result) {
+      return { ok: false, message: "Gmail is not connected yet." };
+    }
+    if ("missingLabel" in result) {
+      return {
+        ok: false,
+        message: `No Gmail label called "${result.missingLabel}". Create it, label the mail you want read, then sync.`,
+      };
+    }
+    revalidatePath("/");
+    const skipped = result.skipped > 0 ? `, ${result.skipped} undated and skipped` : "";
+    return {
+      ok: true,
+      message: `Read ${result.stored} message${result.stored === 1 ? "" : "s"} from "${result.label}"${skipped}.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Sync failed.",
+    };
+  }
 }
 
 /** Demo beat six: the plan, and the annual savings total. */

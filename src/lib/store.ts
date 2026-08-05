@@ -15,7 +15,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { Cancellation, StoredTransaction, UserAnswer } from "./types";
+import type { Cancellation, EmailEvent, StoredTransaction, UserAnswer } from "./types";
 
 export type StoreMode = "firestore" | "local";
 
@@ -53,12 +53,30 @@ export interface Store {
   setProposalStatus(id: string, status: StoredProposal["status"]): Promise<void>;
   /** Discard every stored proposal. Demo tooling; nothing in the app calls it. */
   clearProposals(): Promise<number>;
+
+  /** Layer 2b: message headers synced from Gmail. */
+  listEmails(): Promise<EmailEvent[]>;
+  /** Upsert by Gmail message id, so resyncing the same label cannot double up. */
+  saveEmails(emails: readonly EmailEvent[]): Promise<number>;
+  clearEmails(): Promise<number>;
+
+  /**
+   * The Gmail refresh token. Stored server-side and never sent to a browser;
+   * kept behind this interface rather than reached for directly so that local
+   * dogfooding does not need Firestore at all.
+   */
+  getGmailToken(): Promise<string | null>;
+  saveGmailToken(refreshToken: string): Promise<void>;
+  clearGmailToken(): Promise<void>;
 }
 
 const TRANSACTIONS = "transactions";
 const VERDICTS = "verdicts";
 const PROPOSALS = "proposals";
 const CANCELLATIONS = "cancellations";
+const EMAILS = "emails";
+const CONFIG = "config";
+const GMAIL_TOKEN_DOC = "gmailToken";
 
 /**
  * How many transactions a single read returns.
@@ -299,6 +317,53 @@ async function firestoreStore(): Promise<Store> {
       return snap.docs.length;
     },
 
+    async listEmails() {
+      const snap = await db.collection(EMAILS).orderBy("date", "desc").limit(2000).get();
+      return snap.docs.map(
+        (d: { id: string; data: () => Record<string, unknown> }) =>
+          ({ ...d.data(), id: d.id }) as EmailEvent,
+      );
+    },
+
+    async saveEmails(emails) {
+      if (emails.length === 0) return 0;
+      for (let i = 0; i < emails.length; i += 400) {
+        const batch = db.batch();
+        for (const e of emails.slice(i, i + 400)) {
+          batch.set(db.collection(EMAILS).doc(e.id), e);
+        }
+        await batch.commit();
+      }
+      return emails.length;
+    },
+
+    async clearEmails() {
+      const snap = await db.collection(EMAILS).get();
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = db.batch();
+        for (const doc of snap.docs.slice(i, i + 400)) batch.delete(doc.ref);
+        await batch.commit();
+      }
+      return snap.docs.length;
+    },
+
+    async getGmailToken() {
+      const doc = await db.collection(CONFIG).doc(GMAIL_TOKEN_DOC).get();
+      const stored = doc.data()?.refreshToken;
+      return typeof stored === "string" && stored !== "" ? stored : null;
+    },
+
+    async saveGmailToken(refreshToken) {
+      await db
+        .collection(CONFIG)
+        .doc(GMAIL_TOKEN_DOC)
+        .set({ refreshToken, updatedAt: new Date().toISOString() });
+    },
+
+    async clearGmailToken() {
+      await db.collection(CONFIG).doc(GMAIL_TOKEN_DOC).delete();
+    },
+
   };
 }
 
@@ -311,6 +376,8 @@ interface LocalShape {
   answers: UserAnswer[];
   proposals: StoredProposal[];
   cancellations: Cancellation[];
+  emails: EmailEvent[];
+  gmailRefreshToken?: string;
 }
 
 const EMPTY: LocalShape = {
@@ -318,6 +385,7 @@ const EMPTY: LocalShape = {
   answers: [],
   proposals: [],
   cancellations: [],
+  emails: [],
 };
 
 function localStore(): Store {
@@ -436,6 +504,43 @@ function localStore(): Store {
       data.proposals = [];
       write(data);
       return count;
+    },
+
+    async listEmails() {
+      return read().emails.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    },
+
+    async saveEmails(emails) {
+      const data = read();
+      const byId = new Map(data.emails.map((e) => [e.id, e]));
+      for (const e of emails) byId.set(e.id, e);
+      data.emails = [...byId.values()];
+      write(data);
+      return emails.length;
+    },
+
+    async clearEmails() {
+      const data = read();
+      const count = data.emails.length;
+      data.emails = [];
+      write(data);
+      return count;
+    },
+
+    async getGmailToken() {
+      return read().gmailRefreshToken ?? null;
+    },
+
+    async saveGmailToken(refreshToken) {
+      const data = read();
+      data.gmailRefreshToken = refreshToken;
+      write(data);
+    },
+
+    async clearGmailToken() {
+      const data = read();
+      delete data.gmailRefreshToken;
+      write(data);
     },
 
   };

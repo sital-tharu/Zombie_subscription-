@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GmailSync } from "@/components/gmail-sync";
 import { Logo } from "@/components/logo";
 import { PlanPanel } from "@/components/plan-panel";
 import { SourceBadge, VerdictCard } from "@/components/verdict-card";
@@ -17,6 +18,8 @@ import {
   verdictGlyph,
 } from "@/lib/format";
 import { hasGeminiKey } from "@/lib/gemini";
+import { gmailLabel } from "@/lib/gmail";
+import { hasGmailCredentials, isGmailConnected } from "@/lib/gmail-auth";
 import { cancelGuidance } from "@/lib/merchant-map";
 import {
   getStore,
@@ -45,12 +48,16 @@ export default async function Home({
   const monthRaw = Array.isArray(sp.m) ? sp.m[0] : sp.m;
 
   const store = await getStore();
-  const [transactions, answers, cancellations, proposal] = await Promise.all([
+  const [transactions, answers, cancellations, emails, proposal] = await Promise.all([
     store.listTransactions(),
     store.listAnswers(),
     store.listCancellations(),
+    store.listEmails(),
     store.latestProposal(),
   ]);
+
+  const gmailReady = hasGmailCredentials();
+  const gmailConnected = gmailReady ? await isGmailConnected() : false;
 
   const today = todayIso();
   const currentMonth = monthKey(today);
@@ -78,7 +85,7 @@ export default async function Home({
    * rather than analysing against a date that has not happened yet.
    */
   const asOf = isCurrentMonth ? today : lastDayOfMonth(selectedMonth);
-  const result = analyze(transactions, asOf, { answers, cancellations });
+  const result = analyze(transactions, asOf, { answers, cancellations, emails });
 
   /*
    * The plan is about what to do NOW, so it is always built from a run as of
@@ -96,7 +103,7 @@ export default async function Home({
    */
   const planResult = isCurrentMonth
     ? result
-    : analyze(transactions, today, { answers, cancellations });
+    : analyze(transactions, today, { answers, cancellations, emails });
 
   /*
    * Flagged AND still being paid for. A cancelled subscription keeps its
@@ -268,14 +275,23 @@ export default async function Home({
                 )}
               </div>
             </div>
-            {hasGeminiKey() && (
-              <Link
-                href="/upload"
-                className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)]"
-              >
-                + Add a screenshot
-              </Link>
-            )}
+            <div className="flex flex-wrap items-center gap-3">
+              {hasGeminiKey() && (
+                <Link
+                  href="/upload"
+                  className="rounded-lg border border-[var(--color-edge)] px-4 py-2 text-sm font-medium transition-colors hover:border-[var(--color-muted)]"
+                >
+                  + Add a screenshot
+                </Link>
+              )}
+              {gmailReady && (
+                <GmailSync
+                  connected={gmailConnected}
+                  label={gmailLabel()}
+                  emailCount={emails.length}
+                />
+              )}
+            </div>
           </div>
 
           {!isCurrentMonth && (

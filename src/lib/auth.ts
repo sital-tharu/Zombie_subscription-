@@ -20,6 +20,19 @@ export function ownerKeyConfigured(): boolean {
  * configuration. That is a deliberate demo-grade choice for a single-owner app
  * with no real user data; deployments set the variable.
  */
+/**
+ * Compare a value against the owner key.
+ *
+ * For OAuth callbacks, where the caller is Google and cannot send a header:
+ * the key rides along as the `state` parameter, and this checks it came back
+ * unchanged. Same secret, different channel.
+ */
+export function ownerKeyMatches(value: string | null): boolean {
+  const expected = process.env.OWNER_KEY;
+  if (!expected) return true;
+  return value === expected;
+}
+
 export function requireOwner(request: Request): Response | null {
   const expected = process.env.OWNER_KEY;
   if (!expected) return null;
