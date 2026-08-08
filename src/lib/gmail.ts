@@ -196,7 +196,11 @@ export async function syncGmail(
           id: `gm-${id}-${merchantKeyOf(txn.merchant)}-${index + 1}`,
           merchant: txn.merchant,
           date: txn.date,
+          // Native amount and its currency, both kept verbatim. A receipt in
+          // this inbox is as likely to be USD as INR -- that is exactly how a
+          // "$20.00" bill once landed in the rupee totals as 20.
           total: txn.total,
+          currency: txn.currency,
           category: txn.category,
           source: "email",
           createdAt: new Date().toISOString(),

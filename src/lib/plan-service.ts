@@ -4,6 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { analyze } from "./correlate";
+import { configuredRates, toEngineRows } from "./currency";
 import { addMonths, lastDayOfMonth, monthKey } from "./format";
 import { GEMINI_MODEL, getGeminiClient, hasGeminiKey } from "./gemini";
 import {
@@ -49,7 +50,11 @@ export async function generateProposal(): Promise<GeneratedPlan> {
     store.listTransactions(),
     store.listAnswers(),
   ]);
-  const result = analyze(transactions, undefined, { answers });
+  // Rupee rows only, foreign ones converted at the configured rate. Both runs
+  // below share this list, so the "what changed since last month" comparison
+  // cannot be between one set priced in rupees and another that was not.
+  const { rows } = toEngineRows(transactions, configuredRates());
+  const result = analyze(rows, undefined, { answers });
 
   /*
    * A second run, as of the end of last month, purely so the plan can say what
@@ -60,7 +65,7 @@ export async function generateProposal(): Promise<GeneratedPlan> {
   const previousAsOf = lastDayOfMonth(addMonths(monthKey(result.asOf), -1));
   const previous =
     result.historyStart !== null && result.historyStart <= previousAsOf
-      ? analyze(transactions, previousAsOf, { answers })
+      ? analyze(rows, previousAsOf, { answers })
       : undefined;
 
   const input = buildProposalInput(result, previous);

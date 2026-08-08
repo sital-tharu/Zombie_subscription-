@@ -32,11 +32,26 @@ export type Category = (typeof CATEGORIES)[number];
  * `category` is the model's own labelling and is carried for display only. The
  * engine never reads it -- TransactionLike deliberately omits the field -- so a
  * miscategorised row can never move a currency figure.
+ *
+ * `currency` is the opposite: it exists precisely BECAUSE it moves one. Without
+ * it a "$20.00" receipt validated cleanly as `total: 20` and was rendered "₹20",
+ * because the symbol had nowhere to live and was dropped here. The model is
+ * asked only to report the symbol it can see; conversion happens in currency.ts,
+ * from a rate no model ever supplies.
+ *
+ * Case-insensitive, and normalised on read by `currencyOf` rather than by a Zod
+ * transform -- one less place for the validated shape to differ from the stored
+ * one. The default keeps a model that omits the field from failing an entire
+ * upload, and is correct: every rupee-only source (GPay) would have said INR.
  */
 export const ExtractedTransactionSchema = z.object({
   merchant: z.string().min(1).max(200),
   date: z.string().regex(ISO_DATE, "date must be YYYY-MM-DD"),
   total: z.number().positive(),
+  currency: z
+    .string()
+    .regex(/^[A-Za-z]{3}$/, "currency must be a 3-letter ISO 4217 code")
+    .default("INR"),
   category: z.enum(CATEGORIES),
 });
 

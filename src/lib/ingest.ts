@@ -77,7 +77,11 @@ export async function ingestScreenshot(
     id: `up-${batch}-${merchantKeyOf(txn.merchant)}-${index + 1}`,
     merchant: txn.merchant,
     date: txn.date,
+    // Native, never converted. currency.ts prices it at read time from a rate
+    // the user supplies, so re-entering the rate re-prices history rather than
+    // leaving a stale figure baked into the row.
     total: txn.total,
+    currency: txn.currency,
     category: txn.category,
     source: "photo",
     createdAt: new Date().toISOString(),

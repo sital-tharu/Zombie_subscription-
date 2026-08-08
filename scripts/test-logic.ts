@@ -26,6 +26,12 @@ import {
   chatAllowedNumbers,
   deterministicAnswer,
 } from "../src/lib/chat";
+import {
+  currencyOf,
+  parseRates,
+  toEngineRows,
+  toRupees,
+} from "../src/lib/currency";
 import { addDaysIso, round2 } from "../src/lib/dates";
 import {
   cancelGuidance,
@@ -1487,6 +1493,147 @@ check("PLAN: the deterministic fallback reproduces the engine's figures exactly"
   assert.ok(plan.summary.includes("2,893"), `total wasted missing: ${plan.summary}`);
   assert.strictEqual(plan.items.length, 5);
   assert.strictEqual(planIsGrounded(plan, input), true);
+});
+
+// ---------------------------------------------------------------------------
+// FX: foreign money is priced before the engine sees it, or not counted at all.
+//
+// These call the pure helpers with an explicit rates map rather than reading
+// FX_RATES, so the suite still needs no environment -- the same reason nothing
+// else in this file touches process.env.
+
+check("FX: a row with no currency is rupees, which is what protects the seed", () => {
+  // Every row written before the field existed is genuinely INR. If this ever
+  // stops being true, EXPECTED_SEED_OUTCOME moves and the demo figures with it.
+  assert.strictEqual(currencyOf({}), "INR");
+  assert.strictEqual(currencyOf({ currency: undefined }), "INR");
+  assert.strictEqual(currencyOf({ currency: "usd" }), "USD");
+  assert.strictEqual(currencyOf({ currency: " eur " }), "EUR");
+});
+
+check("FX: rates parse, and anything malformed is dropped rather than defaulted", () => {
+  const good = parseRates("USD:87.4,EUR:95.2");
+  assert.strictEqual(good.get("USD"), 87.4);
+  assert.strictEqual(good.get("EUR"), 95.2);
+
+  assert.strictEqual(parseRates(undefined).size, 0);
+  assert.strictEqual(parseRates("").size, 0);
+
+  // A dropped entry becomes "no rate", which excludes the row. A defaulted one
+  // would become 1.0 and convert $20 to Rs 20 -- the original bug, wearing a
+  // coat of deliberateness.
+  assert.strictEqual(parseRates("USD:abc").size, 0);
+  assert.strictEqual(parseRates("USD:0").size, 0);
+  assert.strictEqual(parseRates("USD:-5").size, 0);
+  assert.strictEqual(parseRates("DOLLARS:87").size, 0);
+  assert.strictEqual(parseRates("USD").size, 0);
+
+  // One bad entry must not take a good one with it.
+  const mixed = parseRates("USD:87.4,JUNK,EUR:xyz");
+  assert.strictEqual(mixed.size, 1);
+  assert.strictEqual(mixed.get("USD"), 87.4);
+});
+
+check("FX: conversion is exact at the given rate, and null without one", () => {
+  const rates = parseRates("USD:87.4");
+  assert.strictEqual(toRupees(20, "USD", rates), 1748);
+  assert.strictEqual(toRupees(20, "usd", rates), 1748);
+  // INR needs no rate and is never touched.
+  assert.strictEqual(toRupees(299, "INR", new Map()), 299);
+  assert.strictEqual(toRupees(20, "GBP", rates), null);
+});
+
+check("FX: an unpriceable charge is counted nowhere, not at face value", () => {
+  // The exact shape of the bug this exists for: a $20 Anthropic receipt read as
+  // 20 and summed into a rupee total. With no rate configured it must leave the
+  // engine's input entirely rather than arrive as 20.
+  const usd = [12, 42, 72].map((d) => ({
+    ...t("Anthropic, PBC", d, 20),
+    currency: "USD",
+  }));
+  const { rows, excluded, converted } = toEngineRows(
+    [...primeFixture(), ...usd],
+    new Map(),
+  );
+
+  assert.strictEqual(excluded.length, 3);
+  assert.strictEqual(converted.size, 0);
+  assert.ok(
+    rows.every((r) => !r.merchant.includes("Anthropic")),
+    "an unpriced row must not reach the engine",
+  );
+
+  const result = analyze(rows, ASOF);
+  assert.strictEqual(
+    result.verdicts.some((v) => v.merchant.includes("Anthropic")),
+    false,
+    "a charge with no rate must produce no verdict",
+  );
+  // Prime alone, exactly as if the USD rows had never been synced.
+  assert.strictEqual(result.totalWasted, 2093);
+  assert.strictEqual(result.monthlyRunRate, 299);
+});
+
+check("FX: a converted subscription still chains, and the native amount survives", () => {
+  // A flat rate is what makes this work: $20 converts identically every cycle,
+  // so Layer 1's +/-10% amount tolerance holds. Per-date historical rates would
+  // make a steady subscription wobble and eventually break the chain.
+  const rates = parseRates("USD:87.4");
+  const usd = [12, 42, 72].map((d) => ({
+    ...t("Anthropic, PBC", d, 20),
+    currency: "USD",
+  }));
+  const { rows, converted, excluded } = toEngineRows(usd, rates);
+
+  assert.strictEqual(excluded.length, 0);
+  assert.strictEqual(converted.size, 3);
+  assert.ok(
+    rows.every((r) => r.total === 1748),
+    "every cycle must convert to the same figure or the chain breaks",
+  );
+
+  // The stored row keeps its native amount -- conversion is derived, never
+  // written back -- so re-entering the rate re-prices history.
+  assert.strictEqual(usd[0].total, 20);
+  const one = converted.get(rows[0].id)!;
+  assert.strictEqual(one.native, 20);
+  assert.strictEqual(one.currency, "USD");
+  assert.strictEqual(one.rate, 87.4);
+  assert.strictEqual(one.rupees, 1748);
+
+  const result = analyze(rows, ASOF);
+  assert.strictEqual(result.subscriptions.length, 1);
+  assert.strictEqual(result.monthlyRunRate, 1748);
+});
+
+check("FX: rupee rows are passed through untouched", () => {
+  // The no-op case, and the one that guarantees this feature cannot move a
+  // figure on a dashboard that has never seen a foreign charge.
+  const rupees = [...primeFixture(), ...netflixFixture()];
+  const { rows, converted, excluded } = toEngineRows(rupees, parseRates("USD:87.4"));
+
+  assert.strictEqual(converted.size, 0);
+  assert.strictEqual(excluded.length, 0);
+  assert.strictEqual(rows.length, rupees.length);
+  assert.deepStrictEqual(
+    analyze(rows, ASOF).totalWasted,
+    analyze(rupees, ASOF).totalWasted,
+  );
+});
+
+check("FX: the seeded demo figures are untouched by the currency layer", () => {
+  // The check that matters most before a demo. Seed rows carry no currency, so
+  // they must pass through and reproduce EXPECTED_SEED_OUTCOME exactly.
+  const seeded = buildSeedTransactions({ asOf: ASOF });
+  const { rows, converted, excluded } = toEngineRows(seeded, parseRates("USD:87.4"));
+
+  assert.strictEqual(converted.size, 0);
+  assert.strictEqual(excluded.length, 0);
+
+  const result = analyze(rows, ASOF);
+  assert.strictEqual(result.totalWasted, EXPECTED_SEED_OUTCOME.totalWasted);
+  assert.strictEqual(result.annualSavings, EXPECTED_SEED_OUTCOME.annualSavings);
+  assert.strictEqual(result.subscriptions.length, EXPECTED_SEED_OUTCOME.subscriptionCount);
 });
 
 // ---------------------------------------------------------------------------

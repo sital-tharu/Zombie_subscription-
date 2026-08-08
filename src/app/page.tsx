@@ -2,12 +2,19 @@ import Link from "next/link";
 import { PlanPanel } from "@/components/plan-panel";
 import { SourceBadge, VerdictCard } from "@/components/verdict-card";
 import { analyze, LOOKBACK_DAYS } from "@/lib/correlate";
+import {
+  configuredRates,
+  ratesAsOf,
+  toEngineRows,
+  type Conversion,
+} from "@/lib/currency";
 import { round2, todayIso } from "@/lib/dates";
 import {
   addMonths,
   inr,
   isMonthKey,
   lastDayOfMonth,
+  money,
   monthKey,
   monthLabel,
   monthsLabel,
@@ -95,8 +102,29 @@ export default async function Home({
    * the current month is what keeps the default view on the canonical figures
    * rather than analysing against a date that has not happened yet.
    */
+  /*
+   * Foreign money, priced before the engine sees any of it.
+   *
+   * `rows` is rupees only -- native amounts converted at the rate in FX_RATES --
+   * so Layers 1-3 stay the rupee-only arithmetic core they were written as, and
+   * TransactionLike never has to learn that other currencies exist.
+   *
+   * `excluded` is the rows we hold a foreign amount for and no rate. They are
+   * counted NOWHERE, because the alternative is counting "$20.00" as 20 -- which
+   * is precisely the bug this exists to fix, and it fails silently. They are
+   * still rendered, so a missing FX_RATES looks like a missing rate rather than
+   * a missing transaction.
+   */
+  const rates = configuredRates();
+  const { rows, converted, excluded } = toEngineRows(transactions, rates);
+  const excludedIds = new Set(excluded.map((txn) => txn.id));
+  // What each row is worth in rupees, for the display sums below. Reading it
+  // back off the engine's own input is what keeps the table's total and the
+  // headline tiles from ever disagreeing about a converted charge.
+  const rupeesById = new Map(rows.map((row) => [row.id, row.total]));
+
   const asOf = isCurrentMonth ? today : lastDayOfMonth(selectedMonth);
-  const result = analyze(transactions, asOf, { answers, cancellations, emails });
+  const result = analyze(rows, asOf, { answers, cancellations, emails });
 
   /*
    * The plan is about what to do NOW, so it is always built from a run as of
@@ -114,7 +142,7 @@ export default async function Home({
    */
   const planResult = isCurrentMonth
     ? result
-    : analyze(transactions, today, { answers, cancellations, emails });
+    : analyze(rows, today, { answers, cancellations, emails });
 
   /*
    * Flagged AND still being paid for. A cancelled subscription keeps its
@@ -174,16 +202,28 @@ export default async function Home({
     .filter((txn) => txn.date.startsWith(selectedMonth))
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.id < b.id ? 1 : -1));
 
+  // Rows we can actually price. A foreign charge with no configured rate has no
+  // rupee value, so it contributes to no total on this page -- summing its
+  // native figure would put dollars into a rupee sum.
+  const monthCountable = monthTransactions.filter((txn) => !excludedIds.has(txn.id));
+  const monthExcluded = monthTransactions.filter((txn) => excludedIds.has(txn.id));
+  const monthConverted = monthTransactions.filter((txn) => converted.has(txn.id));
+
   // One-off spending: everything billed this month that is NOT part of a chain.
   // Subscription charges are excluded here because the run rate already counts
   // them, and adding both would bill the user twice on screen.
+  //
+  // Amounts come from `rupeesById`, never `txn.total` -- the stored figure is
+  // the NATIVE one, and adding a $20 row as 20 is the original bug.
   const paymentsMade = round2(
-    monthTransactions
+    monthCountable
       .filter((txn) => !chainedIds.has(txn.id))
-      .reduce((sum, txn) => sum + txn.total, 0),
+      .reduce((sum, txn) => sum + (rupeesById.get(txn.id) ?? 0), 0),
   );
   const totalSpend = round2(result.monthlyRunRate + paymentsMade);
-  const monthTotal = round2(monthTransactions.reduce((sum, txn) => sum + txn.total, 0));
+  const monthTotal = round2(
+    monthCountable.reduce((sum, txn) => sum + (rupeesById.get(txn.id) ?? 0), 0),
+  );
 
   // Ten visible, the rest a click away. A month of real GPay history is
   // hundreds of rows, and an unbounded table would push the plan off the page.
@@ -315,8 +355,8 @@ export default async function Home({
                 </span>{" "}
                 subscriptions due
                 <span className="mx-1.5 text-[var(--color-dim)]">·</span>
-                <span className="tnum text-[var(--color-fg)]">{inr(paymentsMade)}</span> daily
-                expenses
+                <span className="tnum text-[var(--color-fg)]">{inr(paymentsMade)}</span> spent
+                this month
               </p>
             </div>
             <div className="flex flex-col justify-center rounded-xl bg-[var(--color-panel)] p-4">
@@ -497,6 +537,8 @@ export default async function Home({
                           key={txn.id}
                           txn={txn}
                           verdict={verdictByTxn.get(txn.id)}
+                          conversion={converted.get(txn.id)}
+                          unpriced={excludedIds.has(txn.id)}
                         />
                       ))}
                     </tbody>
@@ -530,12 +572,42 @@ export default async function Home({
                               key={txn.id}
                               txn={txn}
                               verdict={verdictByTxn.get(txn.id)}
+                              conversion={converted.get(txn.id)}
+                              unpriced={excludedIds.has(txn.id)}
                             />
                           ))}
                         </tbody>
                       </table>
                     </div>
                   </details>
+                )}
+
+                {/*
+                  Stated on the page rather than left to be explained out loud.
+                  A converted figure is the one number here that does not come
+                  from a charge -- it comes from a rate somebody typed in -- and
+                  a dashboard arguing for auditability has to say which figures
+                  those are and where the rate came from.
+                */}
+                {monthConverted.length > 0 && (
+                  <p className="mt-2 text-xs text-[var(--color-muted)]">
+                    ≈ marks {monthConverted.length}{" "}
+                    {monthConverted.length === 1 ? "charge" : "charges"} billed in another
+                    currency, converted at the rate you configured
+                    {ratesAsOf() && ` (as of ${ratesAsOf()})`}. The native amount is shown
+                    beside each one — that is the figure your statement will carry.
+                  </p>
+                )}
+
+                {monthExcluded.length > 0 && (
+                  <p className="mt-2 text-xs text-[var(--color-unsure)]">
+                    {monthExcluded.length}{" "}
+                    {monthExcluded.length === 1 ? "charge is" : "charges are"} billed in a
+                    currency with no rate configured, so{" "}
+                    {monthExcluded.length === 1 ? "it is" : "they are"} counted in no total
+                    on this page. Add it to <span className="font-mono">FX_RATES</span> to
+                    include {monthExcluded.length === 1 ? "it" : "them"}.
+                  </p>
                 )}
               </>
             ) : (
@@ -638,9 +710,15 @@ export default async function Home({
 function TransactionRow({
   txn,
   verdict,
+  conversion,
+  unpriced,
 }: {
   txn: StoredTransaction;
   verdict: UsageVerdict | undefined;
+  /** Set when this row was billed in another currency and could be priced. */
+  conversion: Conversion | undefined;
+  /** Foreign currency with no configured rate. Counted in no total on the page. */
+  unpriced?: boolean;
 }) {
   return (
     <tr className="border-t border-[var(--color-edge)]">
@@ -661,7 +739,37 @@ function TransactionRow({
       <td className="px-3.5 py-2">
         <SourceBadge label={sourceLabel(txn.source, txn.seeded)} />
       </td>
-      <td className="tnum px-3.5 py-2 text-right font-mono">{inr(txn.total)}</td>
+      {/*
+        Three cases, and the difference between them is the point.
+
+        A rupee charge is exact. A converted one is NOT -- it is a native amount
+        multiplied by a hand-entered rate, and the "≈" is the only honest mark on
+        a dashboard whose entire argument is that its figures reconcile to real
+        charges. The native amount sits beside it so the traceable fact is always
+        the one on screen. And a row we cannot price says so, rather than
+        silently contributing its face value to a rupee total.
+      */}
+      <td className="tnum px-3.5 py-2 text-right font-mono">
+        {unpriced ? (
+          <>
+            <span className="text-[var(--color-muted)]">
+              {money(txn.total, txn.currency ?? "")}
+            </span>
+            <span className="ml-2 font-sans text-xs text-[var(--color-unsure)]">
+              not counted
+            </span>
+          </>
+        ) : conversion ? (
+          <>
+            ≈{inr(conversion.rupees)}
+            <span className="ml-2 font-sans text-xs text-[var(--color-dim)]">
+              {money(conversion.native, conversion.currency)} @ {conversion.rate}
+            </span>
+          </>
+        ) : (
+          inr(txn.total)
+        )}
+      </td>
     </tr>
   );
 }

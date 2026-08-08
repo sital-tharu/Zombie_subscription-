@@ -14,6 +14,33 @@ export function inr(amount: number): string {
   })}`;
 }
 
+/**
+ * A native foreign amount, e.g. "$20.00".
+ *
+ * Separate from `inr()` rather than a generalisation of it, deliberately: `inr`
+ * is called on every figure the engine produces, and those are rupees by
+ * definition. Widening it would invite a currency argument at hundreds of call
+ * sites where the answer is always the same, and one wrong argument would
+ * mislabel a real figure. This one is only ever called on a row that genuinely
+ * carries a foreign currency.
+ *
+ * Falls back to "CODE amount" for anything Intl does not recognise, which is
+ * better than throwing inside a render.
+ */
+export function money(amount: number, currency: string): string {
+  const code = currency.trim().toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${code} ${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  }
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const MONTHS_FULL = [

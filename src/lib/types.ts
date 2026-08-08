@@ -27,8 +27,21 @@ export interface TransactionLike {
   total: number;
 }
 
-/** A transaction as persisted. Still framework-free; its Zod schema is in schemas.ts. */
+/**
+ * A transaction as persisted. Still framework-free; its Zod schema is in schemas.ts.
+ *
+ * Note where `currency` is and is not. It lives HERE, not on TransactionLike,
+ * because the engine is rupee-only by contract: conversion happens in
+ * currency.ts before `analyze()` is ever called, so Layers 1-3 never learn that
+ * foreign money exists. Putting it on TransactionLike would push a display
+ * concern into the one place that must stay a pure arithmetic core.
+ *
+ * Absent means INR. Every row written before the field existed is genuinely
+ * rupees -- the seed, and GPay, which has no other denomination.
+ */
 export interface StoredTransaction extends TransactionLike {
+  /** ISO 4217, e.g. "USD". Absent means INR. `total` is always the NATIVE amount. */
+  currency?: string;
   category?: string;
   source?: TransactionSource;
   /** ISO timestamp. */

@@ -15,6 +15,7 @@ import {
   REFUSAL,
 } from "./chat";
 import { analyze } from "./correlate";
+import { configuredRates, toEngineRows } from "./currency";
 import { GEMINI_MODEL, getGeminiClient, hasGeminiKey } from "./gemini";
 import { getStore } from "./store";
 
@@ -51,7 +52,14 @@ export async function askAgent(question: string): Promise<ChatAnswer> {
     store.listEmails(),
   ]);
 
-  const result = analyze(transactions, undefined, { answers, cancellations, emails });
+  // Foreign money is priced into rupees here, before the engine sees it, and a
+  // row with no configured rate is dropped rather than counted at face value.
+  // The assistant can only ever restate figures the engine produced, so keeping
+  // this in step with the dashboard is what stops chat quoting a total the
+  // screen disagrees with.
+  const { rows } = toEngineRows(transactions, configuredRates());
+
+  const result = analyze(rows, undefined, { answers, cancellations, emails });
   const ctx = buildChatContext(result, result.transactionsAnalysed);
 
   // Computed BEFORE the model is called, so there is always something true to

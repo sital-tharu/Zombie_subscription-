@@ -20,8 +20,8 @@ is verified by `npm run test:logic` plus a production build.
 - [x] Architecture diagram + PRD submitted (Aug 4 gate)
 - [x] Layer 1 recurring detection — `src/lib/subscriptions.ts`
 - [x] Layer 2 usage correlation + zombie score — `src/lib/correlate.ts`
-- [x] Merchant map, 21 Indian services — `src/lib/merchant-map.ts`
-- [x] Engine regression tests, **58** checks — `scripts/test-logic.ts`
+- [x] Merchant map, 32 Indian services — `src/lib/merchant-map.ts`
+- [x] Engine regression tests, **100** checks — `scripts/test-logic.ts`
 - [x] Seed script — `src/lib/seed-data.ts` + `scripts/seed.ts`
 - [x] Store read/write, Firestore + local fallback — `src/lib/store.ts`
 - [x] Dashboard UI with one-click evidence chains — `src/app/page.tsx`
